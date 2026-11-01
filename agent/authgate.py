@@ -55,7 +55,7 @@ SITES = {
         user_selector="#id",
         password_selector="#pw",
         submit_selector="button[id^='loginBtn']:visible",
-        logged_in_selector="a[href*='nid.naver.com/nidlogin.logout']",
+        logged_in_selector="cookie:NID_AUT",
         captcha_selector="#captcha, #chptcha",
         second_factor_selector="#push_title, #otp",
         remember_selector="#loginStay",
@@ -74,10 +74,10 @@ SITES = {
     ),
     "google": Site(
         name="google",
-        login_url="https://accounts.google.com/signin/v2/identifier?continue=https%3A%2F%2Fmyaccount.google.com%2F",
+        login_url="https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fmyaccount.google.com%2F&flowName=GlifWebSignIn",
         check_url="https://myaccount.google.com/",
-        user_selector="input[type='email']",
-        password_selector="input[type='password']",
+        user_selector="#identifierId",
+        password_selector="input[name='Passwd']",
         submit_selector="#passwordNext button, #passwordNext",
         logged_in_selector="a[href*='SignOutOptions'], a[href*='accounts.google.com/SignOut']",
         captcha_selector="#captchaimg, iframe[src*='recaptcha']",
@@ -229,7 +229,14 @@ class PlaywrightPage:
         self.page.locator(selector).first.check(force=True, timeout=5000)
 
     def has(self, selector: str) -> bool:
+        if selector.startswith("cookie:"):
+            name = selector.split(":", 1)[1]
+            return any(cookie["name"] == name for cookie in self.page.context.cookies())
         return self.page.locator(selector).count() > 0
+
+    def screenshot(self, path) -> None:
+        self.page.wait_for_timeout(2500)
+        self.page.screenshot(path=str(path))
 
     def poll(self) -> None:
         self.page.wait_for_timeout(500)
