@@ -1,0 +1,16 @@
+[Unit]
+Description=Personal agent gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/personal-agent
+EnvironmentFile=/home/ubuntu/personal-agent/.env
+ExecStart=/home/ubuntu/personal-agent/.venv/bin/python -m agent.gateway
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
