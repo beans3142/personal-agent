@@ -138,6 +138,25 @@ def test_wrong_password_result_is_reported(vault):
     assert browser.saved == []
 
 
+def test_two_step_login_enters_id_before_password(vault):
+    two_step = Site(**{**SITE.__dict__, "user_next_selector": "#next"})
+    order = []
+
+    class StepPage(FakePage):
+        def fill(self, selector, value):
+            order.append(selector)
+
+        def click(self, selector):
+            order.append(selector)
+            if selector == "#go":
+                self.present = {"#me"}
+
+    vault.set("demo", "u", "p")
+    auth = AuthGate(vault, FakeBrowser(StepPage()), {"demo": two_step}, wait=lambda: None)
+    assert auth.ensure("demo") == "ok"
+    assert order == ["#id", "#next", "#pw", "#go"]
+
+
 def test_unknown_site_is_rejected(vault):
     auth, _ = gate(vault, FakePage())
     with pytest.raises(AuthBlocked, match="unknown_site"):

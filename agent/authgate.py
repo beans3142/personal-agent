@@ -32,6 +32,7 @@ class Site:
     logged_in_selector: str
     captcha_selector: str
     second_factor_selector: str
+    user_next_selector: str | None = None
 
 
 SITES = {
@@ -67,6 +68,18 @@ SITES = {
         logged_in_selector="a[href*='logout'], .thumb_profile",
         captcha_selector="iframe[src*='captcha'], #captchaContainer",
         second_factor_selector="input[name='passcode'], .tit_certify",
+    ),
+    "google": Site(
+        name="google",
+        login_url="https://accounts.google.com/signin/v2/identifier?continue=https%3A%2F%2Fmyaccount.google.com%2F",
+        check_url="https://myaccount.google.com/",
+        user_selector="input[type='email']",
+        password_selector="input[type='password']",
+        submit_selector="#passwordNext button, #passwordNext",
+        logged_in_selector="a[href*='SignOutOptions'], a[href*='accounts.google.com/SignOut']",
+        captcha_selector="#captchaimg, iframe[src*='recaptcha']",
+        second_factor_selector="#totpPin, [data-challengetype]",
+        user_next_selector="#identifierNext button, #identifierNext",
     ),
 }
 
@@ -108,6 +121,8 @@ class AuthGate:
                 raise AuthBlocked("no_credentials")
             page.goto(site.login_url)
             page.fill(site.user_selector, credentials[0])
+            if site.user_next_selector:
+                page.click(site.user_next_selector)
             page.fill(site.password_selector, credentials[1])
             page.click(site.submit_selector)
             return self._await_result(site, page)
