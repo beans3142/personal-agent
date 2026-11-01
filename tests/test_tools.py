@@ -67,6 +67,21 @@ def test_schedule_tool_adds_job_for_given_time(tmp_path, memory):
     assert [job["text"] for job in jobs] == ["물"]
 
 
+def test_schedule_add_is_always_one_time_even_if_model_sends_interval(tmp_path, memory):
+    tools = by_name(tmp_path, memory)
+    at = (datetime.now().astimezone() + timedelta(hours=1)).isoformat()
+    tools["schedule_add"].run({"kind": "message", "text": "물", "at": at, "every_minutes": 1})
+    assert scheduler.load_jobs(tmp_path / "schedule.json")[0]["every_minutes"] is None
+    assert "every_minutes" not in tools["schedule_add"].parameters["properties"]
+
+
+def test_schedule_repeat_never_goes_below_thirty_minutes(tmp_path, memory):
+    tools = by_name(tmp_path, memory)
+    at = (datetime.now().astimezone() + timedelta(hours=1)).isoformat()
+    tools["schedule_repeat"].run({"kind": "message", "text": "물", "at": at, "every_minutes": 1})
+    assert scheduler.load_jobs(tmp_path / "schedule.json")[0]["every_minutes"] == 30
+
+
 def test_mail_without_credentials_says_what_is_missing(tmp_path, memory):
     with pytest.raises(RuntimeError, match="NAVER_APP_PASSWORD"):
         by_name(tmp_path, memory)["mail_list"].run({})
