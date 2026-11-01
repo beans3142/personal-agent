@@ -12,7 +12,9 @@ from agent.tools import (
     html_to_text,
     is_public_url,
     message_summary,
+    parse_routes,
     parse_search_results,
+    route_url,
 )
 
 
@@ -80,6 +82,23 @@ def test_schedule_repeat_never_goes_below_thirty_minutes(tmp_path, memory):
     at = (datetime.now().astimezone() + timedelta(hours=1)).isoformat()
     tools["schedule_repeat"].run({"kind": "message", "text": "물", "at": at, "every_minutes": 1})
     assert scheduler.load_jobs(tmp_path / "schedule.json")[0]["every_minutes"] == 30
+
+
+def test_route_url_has_stops_transit_mode_and_local_departure_time():
+    url = route_url("행신역", "선릉역", datetime(2026, 11, 3, 12, 0))
+    assert "%ED%96%89%EC%8B%A0%EC%97%AD" in url
+    assert "!3e3" in url
+    assert "!8j1793707200" in url
+
+
+def test_parse_routes_keeps_only_route_lines():
+    page = "저장됨\n최근 항목\n옵션\n휴대전화로 경로 보내기\n링크 복사\n1시간 6분\n오후 12:04~오후 1:10\n경의중앙선  수인.분당선\n선릉 주변 탐색\n별마당"
+    assert parse_routes(page) == "1시간 6분\n오후 12:04~오후 1:10\n경의중앙선  수인.분당선"
+
+
+def test_parse_routes_without_result_raises():
+    with pytest.raises(RuntimeError):
+        parse_routes("경로를 찾을 수 없습니다")
 
 
 def test_mail_without_credentials_says_what_is_missing(tmp_path, memory):

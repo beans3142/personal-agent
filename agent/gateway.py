@@ -12,6 +12,8 @@ from pathlib import Path
 import discord
 
 from . import scheduler
+from .authgate import AuthGate, EnvCredentials, PlaywrightBrowser, build_auth_tool
+from .discord_user import build_discord_user_tool
 from .codex import CodexAuth, CodexError, CodexModel
 from .loop import Tool, run_turn, trim_history
 from .memory import Memory
@@ -141,7 +143,10 @@ def main():
     memory = Memory(DATA / "agent.db")
     store = DATA / "schedule.json"
     model = CodexModel(CodexAuth(DATA / "codex-auth.json"), os.environ.get("AGENT_MODEL", "gpt-5.6-luna"))
-    gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, build_tools(memory, store), store)
+    browser = PlaywrightBrowser(DATA / "sessions")
+    auth = AuthGate(EnvCredentials(os.environ), browser)
+    tools = build_tools(memory, store) + [build_auth_tool(auth), build_discord_user_tool(auth, browser, os.environ["DISCORD_BOT_TOKEN"])]
+    gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, tools, store)
     gateway.run(os.environ["DISCORD_BOT_TOKEN"], log_handler=None)
 
 
