@@ -242,12 +242,26 @@ class PlaywrightPage:
         self.page.wait_for_timeout(500)
 
     def compose_mail(self, to: str, subject: str, body: str) -> None:
-        self.page.locator("#recipient_input_element, input[aria-label*='받는']").first.fill(to, timeout=20000)
+        self.page.wait_for_selector("#recipient_input_element", timeout=20000)
+        self.page.fill("#recipient_input_element", to)
         self.page.keyboard.press("Enter")
-        self.page.locator("#subject_title, input[aria-label*='제목']").first.fill(subject, timeout=20000)
-        self.page.frame_locator("iframe[title*='편집'], iframe.se2_input_wysiwyg").first.locator("body").fill(body, timeout=20000)
-        self.page.get_by_role("button", name="보내기").first.click(timeout=20000)
-        self.page.wait_for_timeout(3000)
+        self.page.fill("#subject_title", subject)
+        editor = None
+        for _ in range(20):
+            for frame in self.page.frames:
+                if frame.locator(".workseditor-content").count():
+                    editor = frame.locator(".workseditor-content").first
+            if editor:
+                break
+            self.page.wait_for_timeout(500)
+        if editor is None:
+            raise RuntimeError("mail editor not found")
+        editor.click()
+        self.page.keyboard.type(body)
+        self.page.locator(".button_write_task").first.click()
+        self.page.wait_for_timeout(5000)
+        if "/v2/new" in self.page.url and "보냈" not in self.page.locator("body").inner_text():
+            raise RuntimeError("mail was not confirmed as sent")
 
     def send_message(self, selector: str, text: str) -> None:
         self.page.click(selector, timeout=20000)

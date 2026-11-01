@@ -61,6 +61,8 @@ def wait_for_tunnel(log: Path, timeout: int = 60) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("site", choices=list(SESSION_MARKERS))
+    parser.add_argument("--url", help="page to open instead of the login page")
+    parser.add_argument("--stay", action="store_true", help="stay open until the timeout, saving the session as it goes")
     args = parser.parse_args()
     site = SITES[args.site]
     data = Path(os.environ.get("AGENT_DATA", "data")).resolve()
@@ -78,7 +80,7 @@ def main() -> None:
             processes.append(subprocess.Popen(
                 [chromium, f"--user-data-dir={data / 'portal-profile' / site.name}", f"--remote-debugging-port={CDP_PORT}",
                  "--remote-debugging-address=127.0.0.1", "--no-first-run", "--window-size=1100,900", "--window-position=0,0",
-                 "--lang=ko-KR", site.login_url],
+                 "--lang=ko-KR", args.url or site.login_url],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             ))
             time.sleep(5)
@@ -91,6 +93,12 @@ def main() -> None:
             send(f"{site.name} 로그인 화면이에요. 한 번만 직접 로그인해 주세요. 20분 뒤 닫혀요.\n{url}/vnc.html?autoconnect=1&resize=scale\n화면 암호: {screen_password}")
             deadline = time.time() + TIMEOUT_SECONDS
             while time.time() < deadline:
+                if args.stay:
+                    if is_logged_in(context, site.name):
+                        context.storage_state(path=str(state))
+                        state.chmod(0o600)
+                    time.sleep(POLL_SECONDS)
+                    continue
                 if is_logged_in(context, site.name):
                     time.sleep(3)
                     context.storage_state(path=str(state))
@@ -99,7 +107,7 @@ def main() -> None:
                     print("saved")
                     return
                 time.sleep(POLL_SECONDS)
-            send(f"{site.name} 로그인 화면이 시간 초과로 닫혔어요.")
+            send(f"{site.name} 화면이 20분이 지나 닫혔어요.")
             print("timeout")
     finally:
         for process in reversed(processes):
