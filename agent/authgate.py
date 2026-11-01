@@ -13,6 +13,7 @@ from pathlib import Path
 from .loop import Tool
 
 LOGIN_ATTEMPTS = 6
+SECOND_FACTOR_ATTEMPTS = 60
 POLL_SECONDS = 5
 
 
@@ -51,7 +52,7 @@ SITES = {
         check_url="https://www.naver.com/",
         user_selector="#id",
         password_selector="#pw",
-        submit_selector="#log\\.login",
+        submit_selector="button[id^='loginBtn']:visible",
         logged_in_selector="a[href*='nid.naver.com/nidlogin.logout']",
         captcha_selector="#captcha, #chptcha",
         second_factor_selector="#push_title, #otp",
@@ -82,7 +83,10 @@ class EnvCredentials:
 
 class AuthGate:
     def __init__(self, credentials, browser, sites: dict[str, Site] = SITES,
-                 wait=lambda: time.sleep(POLL_SECONDS), attempts: int = LOGIN_ATTEMPTS):
+                 wait=lambda: time.sleep(POLL_SECONDS), attempts: int = LOGIN_ATTEMPTS,
+                 second_factor_attempts: int = SECOND_FACTOR_ATTEMPTS, notify=lambda text: None):
+        self.second_factor_attempts = second_factor_attempts
+        self.notify = notify
         self.credentials = credentials
         self.browser = browser
         self.sites = sites
@@ -111,17 +115,22 @@ class AuthGate:
             self.browser.close()
 
     def _await_result(self, site: Site, page) -> str:
-        for _ in range(self.attempts):
+        told = False
+        remaining = self.attempts
+        while remaining > 0:
             if page.has(site.logged_in_selector):
                 self.browser.save(site)
                 return "ok"
             if page.has(site.captcha_selector):
                 raise AuthBlocked("captcha")
-            if page.has(site.second_factor_selector):
-                raise AuthBlocked("second_factor")
+            if page.has(site.second_factor_selector) and not told:
+                told = True
+                remaining = self.second_factor_attempts
+                self.notify(f"{site.name} 로그인 인증을 휴대폰에서 승인해 주세요.")
+            remaining -= 1
             self.wait()
             page.poll()
-        raise AuthBlocked("login_failed")
+        raise AuthBlocked("second_factor_timeout" if told else "login_failed")
 
 
 class PlaywrightBrowser:
@@ -174,6 +183,14 @@ class PlaywrightPage:
 
     def poll(self) -> None:
         self.page.wait_for_timeout(500)
+
+    def compose_mail(self, to: str, subject: str, body: str) -> None:
+        self.page.locator("#recipient_input_element, input[aria-label*='받는']").first.fill(to, timeout=20000)
+        self.page.keyboard.press("Enter")
+        self.page.locator("#subject_title, input[aria-label*='제목']").first.fill(subject, timeout=20000)
+        self.page.frame_locator("iframe[title*='편집'], iframe.se2_input_wysiwyg").first.locator("body").fill(body, timeout=20000)
+        self.page.get_by_role("button", name="보내기").first.click(timeout=20000)
+        self.page.wait_for_timeout(3000)
 
     def send_message(self, selector: str, text: str) -> None:
         self.page.click(selector, timeout=20000)

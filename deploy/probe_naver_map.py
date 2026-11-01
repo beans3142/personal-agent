@@ -1,27 +1,26 @@
-"""Opens Naver Map transit directions and saves a screenshot. Signs in to nothing."""
+"""Shows the Naver departure time picker. Signs in to nothing."""
+
+from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright
 
-START = "126.8343,37.6124,%ED%96%89%EC%8B%A0%EC%97%AD,,ADDRESS_POI"
-GOAL = "127.0490,37.5045,%EC%84%A0%EB%A6%89%EC%97%AD,,ADDRESS_POI"
-URL = f"https://map.naver.com/p/directions/{START}/{GOAL}/-/transit?c=12.00,0,0,0,dh"
+START = f"126.8347679,37.6126875,{quote('행신역')},,ADDRESS_POI"
+GOAL = f"127.0483487,37.5057908,{quote('선릉역')},,ADDRESS_POI"
 
 
 def main() -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_context(locale="ko-KR", timezone_id="Asia/Seoul", viewport={"width": 1280, "height": 900}).new_page()
-        page.goto(URL, wait_until="domcontentloaded", timeout=40000)
-        page.wait_for_timeout(9000)
-        print("URL", page.url[:150])
-        print("TITLE", page.title()[:60])
-        frames = [frame.url[:80] for frame in page.frames]
-        print("FRAMES", frames[:6])
-        for frame in page.frames:
-            text = frame.locator("body").inner_text()[:900]
-            if "분" in text:
-                print("TEXT", frame.url[:60], text)
-                break
+        page.goto(f"https://map.naver.com/p/directions/{START}/{GOAL}/-/transit", wait_until="domcontentloaded", timeout=40000)
+        page.wait_for_timeout(8000)
+        trigger = page.get_by_text("출발", exact=False).filter(has_text="오늘").last
+        print("TRIGGER", trigger.evaluate("e => e.tagName + '|' + e.className + '|' + e.innerText")[:120])
+        trigger.click()
+        page.wait_for_timeout(1500)
+        print("AFTER", page.evaluate("""() => [...document.querySelectorAll('button, select, a[role=button], [role=option], li button')]
+            .filter(e => e.offsetParent && /[0-9]|오전|오후|내일|월|일|확인|출발/.test(e.innerText || ''))
+            .map(e => e.tagName + '|' + e.className.slice(0, 30) + '|' + (e.innerText || '').replace(/\\s+/g, ' ').slice(0, 24)).slice(0, 70)"""))
         page.screenshot(path="/tmp/naver-route.png")
         browser.close()
 

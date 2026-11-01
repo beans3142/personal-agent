@@ -17,6 +17,7 @@ from .discord_user import build_discord_user_tool
 from .codex import CodexAuth, CodexError, CodexModel
 from .loop import Tool, run_turn, trim_history
 from .memory import Memory
+from .naver_mail import build_mail_tool
 from .tools import build_tools
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,6 +82,12 @@ class Gateway(discord.Client):
     async def owner_dm(self):
         return await (await self.fetch_user(self.owner_id)).create_dm()
 
+    def notify_owner(self, text: str) -> None:
+        async def send():
+            await self.send_long(await self.owner_dm(), text)
+
+        asyncio.run_coroutine_threadsafe(send(), self.loop).result(timeout=30)
+
     async def send_long(self, channel, text: str):
         for part in scheduler.split_text(text or "답변이 비어 있어요."):
             await channel.send(part)
@@ -117,6 +124,13 @@ class Gateway(discord.Client):
                 log.exception("turn failed")
                 reply = "처리 중 오류가 났어요. 서버 로그를 확인해야 해요."
         await self.send_long(message.channel, reply)
+        await self.send_outbox(message.channel)
+
+    async def send_outbox(self, channel) -> None:
+        outbox = DATA / "outbox"
+        for path in sorted(outbox.glob("*.png")) if outbox.exists() else []:
+            await channel.send(file=discord.File(path))
+            path.unlink()
 
     def run_scheduled(self, text: str) -> str:
         history: list[dict] = []
@@ -145,8 +159,9 @@ def main():
     model = CodexModel(CodexAuth(DATA / "codex-auth.json"), os.environ.get("AGENT_MODEL", "gpt-5.6-luna"))
     browser = PlaywrightBrowser(DATA / "sessions")
     auth = AuthGate(EnvCredentials(os.environ), browser)
-    tools = build_tools(memory, store) + [build_auth_tool(auth), build_discord_user_tool(auth, browser, os.environ["DISCORD_BOT_TOKEN"])]
+    tools = build_tools(memory, store) + [build_auth_tool(auth), build_discord_user_tool(auth, browser, os.environ["DISCORD_BOT_TOKEN"]), build_mail_tool(auth, browser, os.environ)]
     gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, tools, store)
+    auth.notify = gateway.notify_owner
     gateway.run(os.environ["DISCORD_BOT_TOKEN"], log_handler=None)
 
 

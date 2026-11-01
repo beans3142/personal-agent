@@ -12,9 +12,10 @@ from agent.tools import (
     html_to_text,
     is_public_url,
     message_summary,
+    geocode,
+    naver_directions_url,
     parse_routes,
     parse_search_results,
-    route_url,
 )
 
 
@@ -84,16 +85,27 @@ def test_schedule_repeat_never_goes_below_thirty_minutes(tmp_path, memory):
     assert scheduler.load_jobs(tmp_path / "schedule.json")[0]["every_minutes"] == 30
 
 
-def test_route_url_has_stops_transit_mode_and_local_departure_time():
-    url = route_url("행신역", "선릉역", datetime(2026, 11, 3, 12, 0))
-    assert "%ED%96%89%EC%8B%A0%EC%97%AD" in url
-    assert "!3e3" in url
-    assert "!8j1793707200" in url
+def test_naver_url_has_both_stops_and_transit_mode():
+    url = naver_directions_url(("126.8", "37.6", "행신역"), ("127.0", "37.5", "선릉역"))
+    assert "126.8,37.6,%ED%96%89%EC%8B%A0%EC%97%AD" in url
+    assert url.endswith("/-/transit")
 
 
-def test_parse_routes_keeps_only_route_lines():
-    page = "저장됨\n최근 항목\n옵션\n휴대전화로 경로 보내기\n링크 복사\n1시간 6분\n오후 12:04~오후 1:10\n경의중앙선  수인.분당선\n선릉 주변 탐색\n별마당"
-    assert parse_routes(page) == "1시간 6분\n오후 12:04~오후 1:10\n경의중앙선  수인.분당선"
+def test_geocode_unknown_place_raises():
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    with pytest.raises(RuntimeError):
+        geocode("없는곳", get=lambda *a, **k: Response())
+
+
+def test_parse_routes_starts_at_first_duration():
+    page = "길찾기\n오늘 출발\n1시간23분\n오전 11:04 출발\n3,100원"
+    assert parse_routes(page) == "1시간23분\n오전 11:04 출발\n3,100원"
 
 
 def test_parse_routes_without_result_raises():

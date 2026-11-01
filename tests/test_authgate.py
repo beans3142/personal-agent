@@ -111,13 +111,23 @@ def test_captcha_stops_login_without_saving(vault):
     assert browser.saved == []
 
 
-def test_second_factor_stops_at_once_instead_of_waiting_for_a_person(vault):
+def test_second_factor_tells_owner_once_and_waits_for_phone(vault):
     vault.set("demo", "u", "p")
-    waits = []
-    auth = AuthGate(vault, FakeBrowser(FakePage(after_submit=[["#otp"]])), {"demo": SITE}, wait=lambda: waits.append(1))
-    with pytest.raises(AuthBlocked, match="second_factor"):
+    notices = []
+    page = FakePage(after_submit=[["#otp"], ["#otp"], ["#me"]])
+    browser = FakeBrowser(page)
+    auth = AuthGate(vault, browser, {"demo": SITE}, wait=lambda: None, notify=notices.append)
+    assert auth.ensure("demo") == "ok"
+    assert len(notices) == 1
+    assert browser.saved == ["demo"]
+
+
+def test_second_factor_timeout_is_reported(vault):
+    vault.set("demo", "u", "p")
+    page = FakePage(after_submit=[["#otp"]])
+    auth = AuthGate(vault, FakeBrowser(page), {"demo": SITE}, wait=lambda: None, second_factor_attempts=2)
+    with pytest.raises(AuthBlocked, match="second_factor_timeout"):
         auth.ensure("demo")
-    assert waits == []
 
 
 def test_wrong_password_result_is_reported(vault):
