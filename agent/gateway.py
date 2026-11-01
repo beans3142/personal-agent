@@ -25,6 +25,7 @@ DATA = Path(os.environ.get("AGENT_DATA", ROOT / "data"))
 KST = timezone(timedelta(hours=9))
 APPROVAL_TIMEOUT_SECONDS = 300
 TICK_SECONDS = 20
+SESSION_REFRESH_SECONDS = 6 * 3600
 MAX_HISTORY_ITEMS = 40
 log = logging.getLogger("agent")
 
@@ -61,7 +62,7 @@ class ApprovalView(discord.ui.View):
 
 
 class Gateway(discord.Client):
-    def __init__(self, owner_id: int, model, memory: Memory, tools: list[Tool], store: Path):
+    def __init__(self, owner_id: int, model, memory: Memory, tools: list[Tool], store: Path, auth=None):
         intents = discord.Intents.none()
         intents.dm_messages = True
         intents.message_content = True
@@ -71,10 +72,12 @@ class Gateway(discord.Client):
         self.memory = memory
         self.tools = tools
         self.store = store
+        self.auth = auth
         self.turn_lock = asyncio.Lock()
 
     async def setup_hook(self):
         self.loop.create_task(self.schedule_loop())
+        self.loop.create_task(self.session_loop())
 
     async def on_ready(self):
         log.info("connected as %s", self.user)
@@ -136,6 +139,14 @@ class Gateway(discord.Client):
         history: list[dict] = []
         return run_turn(self.model, self.tools, instructions_for(self.memory), history, text, lambda *_: False)
 
+    async def session_loop(self):
+        await self.wait_until_ready()
+        while self.auth and not self.is_closed():
+            async with self.turn_lock:
+                results = await asyncio.to_thread(self.auth.refresh_all)
+            log.info("session refresh: %s", results)
+            await asyncio.sleep(SESSION_REFRESH_SECONDS)
+
     async def schedule_loop(self):
         await self.wait_until_ready()
         channel = await self.owner_dm()
@@ -160,7 +171,7 @@ def main():
     browser = PlaywrightBrowser(DATA / "sessions")
     auth = AuthGate(EnvCredentials(os.environ), browser)
     tools = build_tools(memory, store) + [build_auth_tool(auth), build_discord_user_tool(auth, browser, os.environ["DISCORD_BOT_TOKEN"]), build_mail_tool(auth, browser, os.environ)]
-    gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, tools, store)
+    gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, tools, store, auth)
     auth.notify = gateway.notify_owner
     gateway.run(os.environ["DISCORD_BOT_TOKEN"], log_handler=None)
 

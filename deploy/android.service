@@ -1,0 +1,15 @@
+[Unit]
+Description=Android (Waydroid) without a screen
+After=network-online.target waydroid-container.service
+Wants=waydroid-container.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+User=ubuntu
+ExecStartPre=+/sbin/modprobe binder_linux
+ExecStart=/bin/bash /home/ubuntu/personal-agent/deploy/start-android.sh
+TimeoutStartSec=480
+
+[Install]
+WantedBy=multi-user.target

@@ -33,6 +33,7 @@ class Site:
     captcha_selector: str
     second_factor_selector: str
     user_next_selector: str | None = None
+    remember_selector: str | None = None
 
 
 SITES = {
@@ -57,6 +58,7 @@ SITES = {
         logged_in_selector="a[href*='nid.naver.com/nidlogin.logout']",
         captcha_selector="#captcha, #chptcha",
         second_factor_selector="#push_title, #otp",
+        remember_selector="#loginStay",
     ),
     "kakao": Site(
         name="kakao",
@@ -68,6 +70,7 @@ SITES = {
         logged_in_selector="a[href*='logout'], .thumb_profile",
         captcha_selector="iframe[src*='captcha'], #captchaContainer",
         second_factor_selector="input[name='passcode'], .tit_certify",
+        remember_selector="input[name='saveSignedIn']",
     ),
     "google": Site(
         name="google",
@@ -124,10 +127,36 @@ class AuthGate:
             if site.user_next_selector:
                 page.click(site.user_next_selector)
             page.fill(site.password_selector, credentials[1])
+            if site.remember_selector:
+                page.check(site.remember_selector)
             page.click(site.submit_selector)
             return self._await_result(site, page)
         finally:
             self.browser.close()
+
+    def refresh(self, name: str) -> str:
+        """Extends a saved session. Never uses a password."""
+        site = self.sites[name]
+        if not self.browser.has_session(site):
+            return "no_session"
+        page = self.browser.open(site)
+        try:
+            page.goto(site.check_url)
+            if not page.has(site.logged_in_selector):
+                return "expired"
+            self.browser.save(site)
+            return "ok"
+        finally:
+            self.browser.close()
+
+    def refresh_all(self) -> dict[str, str]:
+        results = {}
+        for name in self.sites:
+            try:
+                results[name] = self.refresh(name)
+            except Exception as error:
+                results[name] = f"error: {error}"
+        return results
 
     def _await_result(self, site: Site, page) -> str:
         told = False
@@ -156,6 +185,9 @@ class PlaywrightBrowser:
 
     def _state(self, site: Site) -> Path:
         return self.state_dir / f"{site.name}.json"
+
+    def has_session(self, site: Site) -> bool:
+        return self._state(site).exists()
 
     def open(self, site: Site):
         from playwright.sync_api import sync_playwright
@@ -192,6 +224,9 @@ class PlaywrightPage:
 
     def click(self, selector: str) -> None:
         self.page.click(selector, timeout=15000)
+
+    def check(self, selector: str) -> None:
+        self.page.locator(selector).first.check(force=True, timeout=5000)
 
     def has(self, selector: str) -> bool:
         return self.page.locator(selector).count() > 0
