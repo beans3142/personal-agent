@@ -16,3 +16,6 @@ approved/
 *.log
 logs/
 data/
+
+# Local handoff notes
+HANDOFF.md
