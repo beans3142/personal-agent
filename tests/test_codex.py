@@ -27,6 +27,13 @@ def test_parse_ignores_reasoning_items():
     assert parse_sse(lines) == []
 
 
+def test_completed_response_exposes_reported_model_and_usage():
+    metadata = {}
+    usage = {"input_tokens": 120, "output_tokens": 15, "total_tokens": 135}
+    assert parse_sse(event("response.completed", response={"model": "reported-model", "usage": usage}), metadata) == []
+    assert metadata == {"model": "reported-model", "usage": usage}
+
+
 def test_parse_raises_on_failed_response():
     lines = event("response.failed", response={"error": {"message": "usage limit"}})
     with pytest.raises(CodexError, match="usage limit"):

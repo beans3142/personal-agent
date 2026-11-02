@@ -1,6 +1,6 @@
 import json
 
-from agent.loop import Tool, run_turn, trim_history
+from agent.loop import Tool, TurnMetrics, run_turn, trim_history
 
 
 def call(name, args, call_id="c1"):
@@ -43,6 +43,28 @@ def test_plain_answer_uses_one_model_call():
     assert run_turn(model, [], "sys", history, "hi", allow) == "안녕"
     assert len(model.inputs) == 1
     assert history[0]["role"] == "user"
+
+
+def test_request_metrics_sum_all_model_calls_and_tools():
+    class Metered(FakeModel):
+        model = "requested-model"
+        def respond(self, *args):
+            self.last_response_metadata = {"model": "reported-model", "usage": {"input_tokens": 100, "output_tokens": 10}}
+            return super().respond(*args)
+    metrics = TurnMetrics()
+    model = Metered([call("echo", {"v": 1})], [text("done")])
+    run_turn(model, [echo_tool()], "sys", [], "go", allow, metrics=metrics)
+    assert (metrics.model_calls, metrics.tool_calls) == (2, 1)
+    assert (metrics.input_tokens, metrics.output_tokens) == (200, 20)
+    footer = metrics.footer(4.5)
+    assert "reported-model" in footer and "200" in footer and "20" in footer
+    assert "모델 호출 2회" in footer and "4.5초" in footer
+
+
+def test_missing_usage_is_marked_unavailable_instead_of_zero():
+    metrics = TurnMetrics()
+    run_turn(FakeModel([text("hi")]), [], "sys", [], "go", allow, metrics=metrics)
+    assert "토큰 미제공" in metrics.footer(1)
 
 
 def test_tool_result_goes_back_to_model():

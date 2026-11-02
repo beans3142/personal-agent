@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from .android_control import AndroidControl, UiaDevice, build_android_tools
 from .authgate import AuthGate, EnvCredentials, PlaywrightBrowser, build_auth_tool
 from .discord_user import build_discord_user_tool
 from .codex import CodexAuth, CodexError, CodexModel
-from .loop import Tool, run_turn, trim_history
+from .loop import Tool, TurnMetrics, run_turn, trim_history
 from .memory import Memory
 from .naver_mail import build_mail_tool
 from .tools import build_tools
@@ -126,11 +127,14 @@ class Gateway(discord.Client):
         return approve
 
     def turn(self, chat: str, text: str, approve) -> str:
+        started = time.monotonic()
+        metrics = TurnMetrics()
         history = trim_history(self.memory.load_history(chat), MAX_HISTORY_ITEMS)
         if self.android:
             self.android.approve = approve
         try:
-            return run_turn(self.model, self.tools, instructions_for(self.memory, public=chat.startswith("guild:")), history, text, approve, max_steps=30)
+            reply = run_turn(self.model, self.tools, instructions_for(self.memory, public=chat.startswith("guild:")), history, text, approve, max_steps=30, metrics=metrics)
+            return reply + "\n\n" + metrics.footer(time.monotonic() - started)
         finally:
             if self.android:
                 self.android.approve = lambda *_: False
@@ -194,8 +198,11 @@ class Gateway(discord.Client):
             path.unlink()
 
     def run_scheduled(self, text: str) -> str:
+        started = time.monotonic()
+        metrics = TurnMetrics()
         history: list[dict] = []
-        return run_turn(self.model, self.tools, instructions_for(self.memory), history, text, lambda *_: False)
+        reply = run_turn(self.model, self.tools, instructions_for(self.memory), history, text, lambda *_: False, metrics=metrics)
+        return reply + "\n\n" + metrics.footer(time.monotonic() - started)
 
     async def session_loop(self):
         await self.wait_until_ready()

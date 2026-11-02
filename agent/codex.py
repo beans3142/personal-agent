@@ -22,7 +22,7 @@ class CodexError(Exception):
     pass
 
 
-def parse_sse(lines: Iterable[str]) -> list[dict]:
+def parse_sse(lines: Iterable[str], metadata: dict | None = None) -> list[dict]:
     items: list[dict] = []
     for line in lines:
         if not line.startswith("data: "):
@@ -33,6 +33,9 @@ def parse_sse(lines: Iterable[str]) -> list[dict]:
             if event["item"].get("type") in KEPT_ITEM_TYPES:
                 items.append(event["item"])
         elif kind == "response.completed":
+            if metadata is not None:
+                response = event.get("response") or {}
+                metadata.update(model=response.get("model"), usage=response.get("usage"))
             return items
         elif kind in ("response.failed", "response.incomplete", "error"):
             detail = event.get("response", {}).get("error") or event.get("error") or event
@@ -89,8 +92,10 @@ class CodexModel:
     def __init__(self, auth: CodexAuth, model: str):
         self.auth = auth
         self.model = model
+        self.last_response_metadata: dict = {}
 
     def respond(self, instructions: str, items: list[dict], tools: list[dict]) -> list[dict]:
+        self.last_response_metadata = {}
         token = self.auth.access_token()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -111,4 +116,4 @@ class CodexModel:
         with httpx.stream("POST", ENDPOINT, headers=headers, json=payload, timeout=180) as response:
             if response.status_code != 200:
                 raise CodexError(f"HTTP {response.status_code}: {response.read().decode('utf-8', 'replace')[:300]}")
-            return parse_sse(response.iter_lines())
+            return parse_sse(response.iter_lines(), self.last_response_metadata)
