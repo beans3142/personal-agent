@@ -80,6 +80,8 @@ def test_only_known_keys_are_allowed(portal):
     assert android.calls == [("key", "BACK")]
 
 
-def test_text_argument_adds_no_quotes():
+def test_text_argument_is_safe_for_adb_shell():
     assert input_text_arg("a b") == "a%sb"
-    assert input_text_arg("x@y.com!") == "x@y.com!"
+    assert input_text_arg("x@y.com!") == "'x@y.com!'"
+    assert input_text_arg("it's") == "'it'\"'\"'s'"
+    assert input_text_arg("$(reboot)") == "'$(reboot)'"

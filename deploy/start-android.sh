@@ -16,6 +16,9 @@ for _ in $(seq 1 40); do
         sudo waydroid shell -- svc power stayon true
         sudo waydroid shell -- settings put global stay_on_while_plugged_in 7
         sudo waydroid shell -- settings put system screen_off_timeout 2147483647
+        for scale in window_animation_scale transition_animation_scale animator_duration_scale; do
+            sudo waydroid shell -- settings put global "$scale" 0
+        done
         echo booted
         exit 0
     fi

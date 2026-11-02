@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,10 +28,11 @@ PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=
 <button onclick="key('ENTER')">Enter</button><button onclick="key('DEL')">지우기</button><button onclick="key('TAB')">Tab</button><button onclick="key('BACK')">뒤로</button><button onclick="key('HOME')">홈</button></div>
 <img id=s src=screen.png><script>
 const s=document.getElementById('s'),t=document.getElementById('t');
-function refresh(){s.src='screen.png?'+Date.now()}
-setInterval(refresh,2500);
+let busy=false;
+function refresh(){if(busy)return;busy=true;const i=new Image();i.onload=()=>{s.src=i.src;busy=false};i.onerror=()=>{busy=false};i.src='screen.png?'+Date.now()}
+setInterval(refresh,1500);
 s.onclick=e=>{const r=s.getBoundingClientRect(),x=Math.round((e.clientX-r.left)*s.naturalWidth/r.width),y=Math.round((e.clientY-r.top)*s.naturalHeight/r.height);
-fetch(`tap?x=${x}&y=${y}`,{method:'POST'}).then(refresh)};
+s.style.opacity=.6;fetch(`tap?x=${x}&y=${y}`,{method:'POST'}).then(()=>{s.style.opacity=1;refresh()})};
 function send(){fetch('text',{method:'POST',body:t.value}).then(()=>{t.value='';refresh()})}
 function key(n){fetch('key?name='+n,{method:'POST'}).then(refresh)}
 function toggle(){t.type=t.type==='password'?'text':'password'}
@@ -38,27 +40,40 @@ function toggle(){t.type=t.type==='password'?'text':'password'}
 
 
 def input_text_arg(value: str) -> str:
-    """`waydroid shell --` runs the command without a shell, so only spaces need encoding."""
-    return value.replace(" ", "%s")
+    """Encodes spaces for Android's `input text` and quotes for the adb shell."""
+    return shlex.quote(value.replace(" ", "%s"))
 
 
 class Android:
-    def _shell(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["sudo", "waydroid", "shell", "--", *args], capture_output=True, timeout=40)
+    """Talks to Android over one adb connection, which is much lighter than `waydroid shell`."""
+
+    def __init__(self, serial: str):
+        self.serial = serial
+
+    def _adb(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["adb", "-s", self.serial, *args], capture_output=True, timeout=30)
 
     def screen(self) -> bytes:
-        path = "/data/local/tmp/portal.png"
-        self._shell("screencap", "-p", path)
-        return self._shell("cat", path).stdout
+        return self._adb("exec-out", "screencap", "-p").stdout
 
     def tap(self, x: int, y: int) -> None:
-        self._shell("input", "tap", str(x), str(y))
+        self._adb("shell", "input", "tap", str(x), str(y))
 
     def text(self, value: str) -> None:
-        self._shell("input", "text", input_text_arg(value))
+        self._adb("shell", "input", "text", input_text_arg(value))
 
     def key(self, name: str) -> None:
-        self._shell("input", "keyevent", KEYS[name])
+        self._adb("shell", "input", "keyevent", KEYS[name])
+
+
+def adb_serial() -> str:
+    status = subprocess.run(["waydroid", "status"], capture_output=True, text=True, timeout=30).stdout
+    address = re.search(r"IP address:\s*([0-9.]+)", status)
+    if not address:
+        raise RuntimeError("Android IP address not found")
+    serial = f"{address.group(1)}:5555"
+    subprocess.run(["adb", "connect", serial], capture_output=True, timeout=30)
+    return serial
 
 
 class PortalServer(ThreadingHTTPServer):
@@ -126,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     token = secrets.token_urlsafe(24)
-    server = PortalServer(("127.0.0.1", WEB_PORT), Android(), token)
+    server = PortalServer(("127.0.0.1", WEB_PORT), Android(adb_serial()), token)
     log = Path("/tmp/android-tunnel.log")
     tunnel = subprocess.Popen(["cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{WEB_PORT}"],
                               stdout=log.open("w"), stderr=subprocess.STDOUT)
