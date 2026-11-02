@@ -56,6 +56,22 @@ def test_click_uses_observed_bounds():
     assert device.calls == [("click", 100, 60)]
 
 
+def test_click_rejects_array_position_when_expected_label_does_not_match_id():
+    ui, device = control()
+    state = ui.observe()
+    with pytest.raises(ValueError, match="label"):
+        ui.click(state["snapshot"], 0, expected_label="결제하기")
+    assert device.calls == []
+
+
+def test_observation_exposes_checkbox_state_and_click_tool_requires_label():
+    ui, device = control()
+    device.xml = '<hierarchy><node text="Required" checkable="true" checked="true" clickable="true" bounds="[0,0][100,40]"/></hierarchy>'
+    assert ui.observe()["nodes"][0]["checked"] is True
+    click = next(tool for tool in build_android_tools(ui) if tool.name == "android_click")
+    assert "expected_label" in click.parameters["required"]
+
+
 def test_korean_input_is_replaced_in_the_selected_field():
     ui, device = control()
     state = ui.observe()

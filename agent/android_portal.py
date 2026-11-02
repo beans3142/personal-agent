@@ -74,6 +74,10 @@ class Android:
 
 
 def adb_serial() -> str:
+    configured = os.environ.get("ANDROID_SERIAL")
+    if configured:
+        subprocess.run(["adb", "connect", configured], capture_output=True, timeout=30)
+        return configured
     status = subprocess.run(["waydroid", "status"], capture_output=True, text=True, timeout=30).stdout
     address = re.search(r"IP address:\s*([0-9.]+)", status)
     if not address:

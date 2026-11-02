@@ -4,7 +4,7 @@ import urllib.request
 
 import pytest
 
-from agent.android_portal import PortalServer, input_text_arg
+from agent.android_portal import PortalServer, adb_serial, input_text_arg
 
 
 class Android:
@@ -96,3 +96,12 @@ def test_only_allowed_apps_can_be_opened(portal):
     assert android.calls == [("app", "kakao", True)]
     with pytest.raises(urllib.error.HTTPError):
         post(base + "/secret/app?name=com.evil.app")
+
+
+def test_configured_adb_serial_does_not_need_waydroid(monkeypatch):
+    from agent import android_portal
+    calls = []
+    monkeypatch.setenv("ANDROID_SERIAL", "127.0.0.1:15555")
+    monkeypatch.setattr(android_portal.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    assert adb_serial() == "127.0.0.1:15555"
+    assert calls == [["adb", "connect", "127.0.0.1:15555"]]
