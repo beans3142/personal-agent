@@ -20,7 +20,7 @@ Execution:
 - [x] Install dependencies on ARM, verify Android service and app installation.
 - [x] Move the gateway runtime and existing state to ARM, retaining a rollback copy and stopping the old gateway.
 - [x] Verify owner Discord command -> model -> Android tool -> reply/screenshot, and restart persistence.
-- [ ] Update local handoff with verified results and exact remaining blockers, without credentials.
+- [x] Update local handoff with verified results and exact remaining blockers, without credentials.
 
 Live investigation: Waydroid repeatedly crashed in the ARM software renderer. Disabling Mesa worker threads, switching EGL to Mesa, and testing the official April 2026 vendor image did not establish stable app use. Do not repeat these as untried fixes or describe a transient terms screen as compatibility proof.
 
@@ -50,3 +50,10 @@ Verified update (2026-11-02, 16:32 KST):
 - Kakao credentials were entered successfully using environment references. Login reached the secondary-device registration code on the existing phone; code expired while waiting. The owner was asked to prepare the phone before a fresh code is generated. Kakao messaging is not yet operational.
 - Reviewer found and verified fixes for stale outbox images after a failed transit lookup, after-midnight timetable ordering, and final text-entry index races. Full suite: 155 passed.
 - Restart persistence verified at 16:35 KST: restarted the ReDroid container and gateway, invoked Baemin through web Discord, and independently inspected the selected-address home screen. The registered delivery address persisted. The check did not register another address or order anything.
+
+Verified update (2026-11-02, 21:27 KST):
+- The owner completed KakaoTalk secondary-device phone authentication. Actual login and the Chats list were verified. Contacts, notifications and battery-optimization access were not granted.
+- Initial self-chat attempts stopped without sending: the generic 8,000-character tool-result limit cut a roughly 16,000-character tablet UI tree before the right-pane message input. Screenshots showed the input while the model received only the left chat list. Android screen snapshots now bypass that generic string clipping; obsolete snapshots still compact before later model calls. Other tool-result limits are unchanged.
+- The regression test places the active input after a large chat list. It failed with truncated invalid JSON before the fix. Full suite after the fix: 156 passed; independent review found no actionable correctness issues.
+- After server deployment, a web Discord request sent exactly one test message to the owner's own chat. The actual me badge and new outgoing bubble were independently verified. No other person or group received a message. This verifies self-chat transmission, not arbitrary-recipient delivery, incoming-message monitoring or indefinite authentication.
+- App-reopen persistence verified: force-stopped only KakaoTalk, then opened it through web Discord. The actual logged-in Chats list returned, with the test message preserved in the own-chat preview. No new message was sent. This check covers app-process restart, not a later Android reboot or account-session expiry.

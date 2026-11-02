@@ -158,6 +158,18 @@ def test_long_tool_result_is_cut_to_save_tokens():
     assert len(outputs(model.inputs[1])[0]) < 200
 
 
+def test_android_screen_preserves_input_after_large_chat_list():
+    nodes = [{"id": i, "text": "chat list entry " * 20} for i in range(40)]
+    nodes.append({"id": 281, "resource": "message_edit_text", "input": True})
+    screen = {"snapshot": "fresh", "nodes": nodes}
+    tool = Tool("android_screen", "", {}, lambda _: json.dumps(screen))
+    model = FakeModel([call("android_screen", {})], [text("done")])
+    run_turn(model, [tool], "sys", [], "go", allow)
+    observed = json.loads(outputs(model.inputs[1])[0])
+    assert observed == screen
+    assert observed["nodes"][-1]["input"] is True
+
+
 def test_step_limit_stops_endless_tool_calls():
     model = FakeModel(*[[call("echo", {"v": i}, str(i))] for i in range(5)])
     reply = run_turn(model, [echo_tool()], "sys", [], "go", allow, max_steps=3)

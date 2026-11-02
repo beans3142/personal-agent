@@ -85,7 +85,9 @@ def execute(call: dict, tools: dict[str, Tool], approve, max_result_chars: int) 
         logging.getLogger("agent.tools").warning("tool failed: %s (%s)", tool.name, type(error).__name__)
         return f"error: {error}"
     logging.getLogger("agent.tools").info("tool done: %s %.2fs", tool.name, time.monotonic() - started)
-    if len(result) > max_result_chars:
+    # Screen JSON is an actionable snapshot: cutting it can hide the active
+    # input behind a long tablet chat list. Older snapshots are compacted below.
+    if tool.name != "android_screen" and len(result) > max_result_chars:
         return f"{result[:max_result_chars]}\n[cut: {len(result)} chars in total]"
     return result
 
