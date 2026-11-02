@@ -4,7 +4,7 @@ import urllib.request
 
 import pytest
 
-from agent.android_portal import PortalServer, quoted_text
+from agent.android_portal import PortalServer, input_text_arg
 
 
 class Android:
@@ -80,6 +80,6 @@ def test_only_known_keys_are_allowed(portal):
     assert android.calls == [("key", "BACK")]
 
 
-def test_text_quoting_survives_shell_characters():
-    assert quoted_text("a b") == "'a%sb'"
-    assert quoted_text("it's$") == "'it'\\''s$'"
+def test_text_argument_adds_no_quotes():
+    assert input_text_arg("a b") == "a%sb"
+    assert input_text_arg("x@y.com!") == "x@y.com!"

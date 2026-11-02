@@ -37,9 +37,9 @@ function toggle(){t.type=t.type==='password'?'text':'password'}
 </script>"""
 
 
-def quoted_text(value: str) -> str:
-    """Quotes text for Android's `input text`, which reads a space as %s."""
-    return "'" + value.replace(" ", "%s").replace("'", "'\\''") + "'"
+def input_text_arg(value: str) -> str:
+    """`waydroid shell --` runs the command without a shell, so only spaces need encoding."""
+    return value.replace(" ", "%s")
 
 
 class Android:
@@ -55,7 +55,7 @@ class Android:
         self._shell("input", "tap", str(x), str(y))
 
     def text(self, value: str) -> None:
-        self._shell("input", "text", quoted_text(value))
+        self._shell("input", "text", input_text_arg(value))
 
     def key(self, name: str) -> None:
         self._shell("input", "keyevent", KEYS[name])
