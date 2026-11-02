@@ -43,6 +43,15 @@ def test_password_is_redacted_but_unicode_and_bounds_remain():
     assert nodes[2]["password"] is True
 
 
+def test_kakao_screen_does_not_publish_chat_screenshot(tmp_path):
+    ui, device = control(outbox=tmp_path)
+    (tmp_path/'android.png').write_bytes(b'old chat screenshot')
+    device.screenshot=lambda path:pytest.fail('private chat screenshot')
+    result=ui.observe()
+    assert 'screenshot' not in result
+    assert not (tmp_path/'android.png').exists()
+
+
 def test_click_requires_observation_and_checks_current_target():
     ui, device = control()
     state = ui.observe()

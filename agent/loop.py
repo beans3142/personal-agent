@@ -34,12 +34,15 @@ class TurnMetrics:
             self.missing_usage += 1
 
     def footer(self, elapsed: float) -> str:
-        tokens = f"토큰 입력 {self.input_tokens:,} / 출력 {self.output_tokens:,}"
-        if self.missing_usage == self.model_calls:
+        def count(value):
+            return f"{value / 1000:.1f}k" if value >= 1000 else str(value)
+        tokens = f"토큰 입력 {count(self.input_tokens)} / 출력 {count(self.output_tokens)}"
+        if self.model_calls and self.missing_usage == self.model_calls:
             tokens = "토큰 미제공"
         elif self.missing_usage:
             tokens += f" ({self.missing_usage}회 미제공)"
-        return f"-# 처리 {elapsed:.1f}초 · {tokens} · 모델 호출 {self.model_calls}회 · 도구 {self.tool_calls}회 · 모델 {', '.join(self.models) or '미제공'}"
+        name = ', '.join(self.models) or ('미사용' if not self.model_calls else '미제공')
+        return f"-# 처리 {elapsed:.1f}초 · {tokens} · 모델 호출 {self.model_calls}회 · 도구 {self.tool_calls}회 · 모델 {name}"
 
 
 @dataclass
@@ -147,3 +150,8 @@ def trim_history(history: list[dict], max_items: int) -> list[dict]:
         if item.get("role") == "user":
             return recent[index:]
     return []
+
+
+def conversation_context(history: list[dict], max_messages: int = 12) -> list[dict]:
+    """Completed requests retain conversation, never obsolete tool payloads."""
+    return [item for item in history if item.get("role") in ("user", "assistant") and item.get("type") in (None, "message")][-max_messages:]

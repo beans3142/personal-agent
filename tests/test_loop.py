@@ -1,6 +1,6 @@
 import json
 
-from agent.loop import Tool, TurnMetrics, run_turn, trim_history
+from agent.loop import Tool, TurnMetrics, run_turn, trim_history, conversation_context
 
 
 def call(name, args, call_id="c1"):
@@ -65,6 +65,18 @@ def test_missing_usage_is_marked_unavailable_instead_of_zero():
     metrics = TurnMetrics()
     run_turn(FakeModel([text("hi")]), [], "sys", [], "go", allow, metrics=metrics)
     assert "토큰 미제공" in metrics.footer(1)
+
+
+def test_usage_uses_k_units_and_distinguishes_programmatic_execution():
+    metrics=TurnMetrics(model_calls=1,input_tokens=214916,output_tokens=937,models=['model'])
+    assert '214.9k / 출력 937' in metrics.footer(1)
+    assert '모델 미사용' in TurnMetrics().footer(1)
+
+
+def test_new_request_context_keeps_conversation_without_old_tool_payloads():
+    items=[{'role':'user','content':'send greeting'},call('android_screen',{}),{'type':'function_call_output','call_id':'c1','output':'private tree '*1000},text('KAKAO_SENT')]
+    context=conversation_context(items)
+    assert len(context)==2 and 'private tree' not in json.dumps(context)
 
 
 def test_obsolete_android_trees_are_not_resent_to_model():
