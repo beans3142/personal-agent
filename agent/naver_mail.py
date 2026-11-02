@@ -43,6 +43,7 @@ def send_browser(gate, browser, message: EmailMessage) -> None:
     try:
         page.goto(COMPOSE_URL)
         page.compose_mail(message["To"], message["Subject"], message.get_content().strip())
+        browser.save(SITES["naver"])
     finally:
         browser.close()
 

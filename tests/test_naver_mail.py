@@ -39,9 +39,13 @@ class FakePage:
 class FakeBrowser:
     def __init__(self):
         self.page = FakePage()
+        self.saved = []
 
     def open(self, site):
         return self.page
+
+    def save(self, site):
+        self.saved.append(site.name)
 
     def close(self):
         pass
@@ -85,6 +89,7 @@ def test_without_app_password_uses_browser_session():
     browser = FakeBrowser()
     build_mail_tool(FakeGate(), browser, ENV).run({"subject": "제목", "body": "본문"})
     assert browser.page.composed == [("me@naver.com", "제목", "본문")]
+    assert browser.saved == ["naver"]
 
 
 def test_blocked_login_is_reported_and_nothing_is_sent():

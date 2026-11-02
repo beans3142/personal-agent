@@ -49,6 +49,7 @@ def build_discord_user_tool(gate, browser, bot_token: str) -> Tool:
         try:
             page.goto(url)
             page.send_message(MESSAGE_BOX, args["text"])
+            browser.save(SITES["discord"])
         finally:
             browser.close()
         return "sent as owner"
