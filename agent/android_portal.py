@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .qr_login import discord_sender
+from .android_control import APPS, UiaDevice
 
 WEB_PORT = 6090
 OPEN_SECONDS = 1800
@@ -26,6 +27,8 @@ PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=
 .bar{display:flex;gap:6px;padding:8px;flex-wrap:wrap}input{flex:1;min-width:140px;font-size:16px;padding:8px}button{font-size:16px;padding:8px 12px}</style>
 <div class=bar><input id=t type=password placeholder="입력할 글자" autocomplete=off><button onclick=toggle()>보기</button><button onclick=send()>입력</button>
 <button onclick="key('ENTER')">Enter</button><button onclick="key('DEL')">지우기</button><button onclick="key('TAB')">Tab</button><button onclick="key('BACK')">뒤로</button><button onclick="key('HOME')">홈</button></div>
+<div class=bar><button onclick="app('kakao')">카카오톡</button><button onclick="app('baemin')">배민</button><button onclick="app('play_store')">Play 스토어</button>
+<button onclick="app('kakao',true)">카톡 설치</button><button onclick="app('baemin',true)">배민 설치</button></div>
 <img id=s src=screen.png><script>
 const s=document.getElementById('s'),t=document.getElementById('t');
 let busy=false;
@@ -36,6 +39,7 @@ s.style.opacity=.6;fetch(`tap?x=${x}&y=${y}`,{method:'POST'}).then(()=>{s.style.
 function send(){fetch('text',{method:'POST',body:t.value}).then(()=>{t.value='';refresh()})}
 function key(n){fetch('key?name='+n,{method:'POST'}).then(refresh)}
 function toggle(){t.type=t.type==='password'?'text':'password'}
+function app(name,store=false){fetch('app?name='+name+'&store='+(store?'1':'0'),{method:'POST'}).then(refresh)}
 </script>"""
 
 
@@ -64,6 +68,9 @@ class Android:
 
     def key(self, name: str) -> None:
         self._adb("shell", "input", "keyevent", KEYS[name])
+
+    def open_app(self, name: str, store: bool = False) -> None:
+        UiaDevice(self.serial).open(name, store)
 
 
 def adb_serial() -> str:
@@ -131,6 +138,11 @@ class Handler(BaseHTTPRequestHandler):
             if query.get("name", [""])[0] not in KEYS:
                 return self._reply(400)
             android.key(query["name"][0])
+        elif path == "app":
+            name = query.get("name", [""])[0]
+            if name not in APPS:
+                return self._reply(400)
+            android.open_app(name, query.get("store", ["0"])[0] == "1")
         else:
             return self._reply(404)
         self._reply(204)
@@ -160,7 +172,7 @@ def main() -> None:
     import threading
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(url, flush=True)
+    print(f"{url}/{token}/", flush=True)
     time.sleep(OPEN_SECONDS)
     server.shutdown()
     tunnel.terminate()

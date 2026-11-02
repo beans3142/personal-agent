@@ -23,6 +23,9 @@ class Android:
     def key(self, name):
         self.calls.append(("key", name))
 
+    def open_app(self, name, store=False):
+        self.calls.append(("app", name, store))
+
 
 @pytest.fixture
 def portal():
@@ -85,3 +88,11 @@ def test_text_argument_is_safe_for_adb_shell():
     assert input_text_arg("x@y.com!") == "'x@y.com!'"
     assert input_text_arg("it's") == "'it'\"'\"'s'"
     assert input_text_arg("$(reboot)") == "'$(reboot)'"
+
+
+def test_only_allowed_apps_can_be_opened(portal):
+    android, base = portal
+    post(base + "/secret/app?name=kakao&store=1")
+    assert android.calls == [("app", "kakao", True)]
+    with pytest.raises(urllib.error.HTTPError):
+        post(base + "/secret/app?name=com.evil.app")

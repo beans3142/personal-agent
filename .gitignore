@@ -16,6 +16,9 @@ approved/
 *.log
 logs/
 data/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Local handoff notes
 HANDOFF.md

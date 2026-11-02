@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -45,9 +47,13 @@ def execute(call: dict, tools: dict[str, Tool], approve, max_result_chars: int) 
     if tool.needs_approval and not approve(tool.name, args):
         return "denied: the user did not approve this action"
     try:
+        started = time.monotonic()
+        logging.getLogger("agent.tools").info("tool start: %s", tool.name)
         result = str(tool.run(args))
     except Exception as error:
+        logging.getLogger("agent.tools").warning("tool failed: %s (%s)", tool.name, type(error).__name__)
         return f"error: {error}"
+    logging.getLogger("agent.tools").info("tool done: %s %.2fs", tool.name, time.monotonic() - started)
     if len(result) > max_result_chars:
         return f"{result[:max_result_chars]}\n[cut: {len(result)} chars in total]"
     return result

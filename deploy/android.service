@@ -1,7 +1,7 @@
 [Unit]
 Description=Android (Waydroid) without a screen
-After=network-online.target waydroid-container.service
-Wants=waydroid-container.service
+After=network-online.target waydroid-container.service user@1000.service
+Wants=waydroid-container.service user@1000.service
 
 [Service]
 Type=oneshot
