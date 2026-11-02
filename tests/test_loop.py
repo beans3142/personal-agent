@@ -67,6 +67,29 @@ def test_missing_usage_is_marked_unavailable_instead_of_zero():
     assert "토큰 미제공" in metrics.footer(1)
 
 
+def test_obsolete_android_trees_are_not_resent_to_model():
+    count = []
+    def screen(_):
+        count.append(1)
+        return json.dumps({"snapshot": len(count), "nodes": ["large old UI tree"]})
+    model = FakeModel([call("android_screen", {}, "a")], [call("android_screen", {}, "b")], [text("done")])
+    run_turn(model, [Tool("android_screen", "", {}, screen)], "sys", [], "go", allow)
+    assert json.loads(outputs(model.inputs[-1])[0])["superseded"] is True
+    assert json.loads(outputs(model.inputs[-1])[1])["snapshot"] == 2
+
+
+def test_repeated_action_errors_stop_even_with_observations_between_attempts():
+    def fail(_):
+        raise ValueError("target changed")
+    replies = []
+    for i in range(5):
+        replies.extend([[call("click", {}, f"c{i}")], [call("android_screen", {}, f"s{i}")]])
+    model = FakeModel(*replies)
+    result = run_turn(model, [Tool("click", "", {}, fail), Tool("android_screen", "", {}, lambda _: "screen")], "sys", [], "go", allow, max_steps=20)
+    assert "3회" in result and "완료되지" in result
+    assert len(model.inputs) == 5
+
+
 def test_tool_result_goes_back_to_model():
     model = FakeModel([call("echo", {"v": 1})], [text("끝")])
     history = []

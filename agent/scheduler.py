@@ -93,4 +93,12 @@ def run_due(store: Path, now: datetime, send, run_prompt) -> int:
 
 
 def split_text(text: str) -> list[str]:
-    return [text[i:i + DISCORD_LIMIT] for i in range(0, len(text), DISCORD_LIMIT)]
+    parts = []
+    while len(text) > DISCORD_LIMIT:
+        boundary = text.rfind("\n", 0, DISCORD_LIMIT + 1)
+        cut = boundary + 1 if boundary >= DISCORD_LIMIT // 2 else DISCORD_LIMIT
+        parts.append(text[:cut])
+        text = text[cut:]
+    if text:
+        parts.append(text)
+    return parts

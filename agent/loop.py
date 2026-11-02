@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 STEP_LIMIT_REPLY = "작업 단계 한도에 걸려 멈췄어요. 이어서 하려면 다시 말해 주세요."
+REPEATED_ERROR_REPLY = "같은 조작 오류가 3회 반복돼 실행을 중단했어요. 요청한 작업은 완료되지 않았습니다."
 
 
 @dataclass
@@ -95,7 +96,14 @@ def run_turn(model, tools: list[Tool], instructions: str, history: list[dict], u
     by_name = {tool.name: tool for tool in tools}
     schemas = [tool.schema() for tool in tools]
     history.append({"role": "user", "content": user_text})
+    last_error, repeated_errors = None, 0
     for _ in range(max_steps):
+        # Only the newest Android snapshot can be acted on. Do not repeatedly
+        # send obsolete full UI trees (or tempt the model to reuse stale ids).
+        screen_calls = {item.get("call_id") for item in history if item.get("type") == "function_call" and item.get("name") == "android_screen"}
+        screens = [item for item in history if item.get("type") == "function_call_output" and item.get("call_id") in screen_calls]
+        for item in screens[:-1]:
+            item["output"] = '{"superseded":true,"note":"Use only the newest android_screen snapshot."}'
         if metrics is not None:
             metrics.model_calls += 1
         items = model.respond(instructions, history, schemas)
@@ -105,14 +113,26 @@ def run_turn(model, tools: list[Tool], instructions: str, history: list[dict], u
         calls = [item for item in items if item.get("type") == "function_call"]
         if not calls:
             return output_text(items)
-        for call in calls:
+        for call_index, call in enumerate(calls):
             if metrics is not None:
                 metrics.tool_calls += 1
+            result = execute(call, by_name, approve, max_result_chars)
             history.append({
                 "type": "function_call_output",
                 "call_id": call["call_id"],
-                "output": execute(call, by_name, approve, max_result_chars),
+                "output": result,
             })
+            if call["name"] != "android_screen":
+                if result.startswith("error:"):
+                    key = (call["name"], result)
+                    repeated_errors = repeated_errors + 1 if key == last_error else 1
+                    last_error = key
+                    if repeated_errors >= 3:
+                        for pending in calls[call_index + 1:]:
+                            history.append({"type": "function_call_output", "call_id": pending["call_id"], "output": "skipped: repeated action errors; no action performed"})
+                        return REPEATED_ERROR_REPLY
+                else:
+                    last_error, repeated_errors = None, 0
     return STEP_LIMIT_REPLY
 
 

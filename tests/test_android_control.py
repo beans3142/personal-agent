@@ -23,8 +23,11 @@ class Device:
     def click(self, x, y):
         self.calls.append(("click", x, y))
 
-    def set_text(self, index, value):
-        self.calls.append(("text", index, value))
+    def set_text(self, target, value):
+        self.calls.append(("text", target["id"], value))
+
+    def key(self, key):
+        self.calls.append(("key", key))
 
 
 def control(**kwargs):
@@ -54,6 +57,39 @@ def test_click_uses_observed_bounds():
     state = ui.observe()
     ui.click(state["snapshot"], 1)
     assert device.calls == [("click", 100, 60)]
+
+
+def test_unrelated_inserted_node_does_not_change_the_selected_target():
+    ui, device = control()
+    state = ui.observe()
+    device.xml = XML.replace('<hierarchy>', '<hierarchy><node text="clock" bounds="[200,0][250,40]"/>')
+    ui.input(state["snapshot"], 1, text="search")
+    assert device.calls == [("text", 2, "search")]
+
+
+def test_observation_hides_anonymous_containers_with_labelled_children():
+    ui, device = control()
+    device.xml = '<hierarchy><node clickable="true" bounds="[0,0][900,1400]"><node text="Search" bounds="[0,0][300,50]"/></node></hierarchy>'
+    assert [node["id"] for node in ui.observe()["nodes"]] == [1]
+
+
+def test_unrelated_banner_changes_do_not_invalidate_labelled_target():
+    ui, device = control()
+    device.xml = '<hierarchy><node clickable="true" bounds="[0,0][900,1400]"><node text="Search" bounds="[0,0][300,50]"/><node text="banner A" bounds="[0,200][900,400]"/></node></hierarchy>'
+    state = ui.observe()
+    device.xml = device.xml.replace('banner A', 'banner B')
+    ui.click(state["snapshot"], 1, expected_label="Search")
+    assert device.calls == [("click", 150, 25)]
+
+
+def test_changed_consequential_label_in_large_parent_still_invalidates_target():
+    ui, device = control()
+    device.xml = '<hierarchy><node clickable="true" bounds="[0,0][900,1400]"><node text="Search" bounds="[0,0][300,50]"/><node text="banner A" bounds="[0,200][900,400]"/></node></hierarchy>'
+    state = ui.observe()
+    device.xml = device.xml.replace('banner A', '결제하기')
+    with pytest.raises(ValueError, match="changed"):
+        ui.click(state["snapshot"], 1, expected_label="Search")
+    assert not device.calls
 
 
 def test_click_rejects_array_position_when_expected_label_does_not_match_id():
@@ -87,6 +123,22 @@ def test_credentials_come_from_environment_without_entering_result():
     assert "private-password" not in json.dumps(result)
     with pytest.raises(ValueError):
         ui.input(state["snapshot"], 2, credential="AWS_SECRET_ACCESS_KEY")
+
+
+def test_empty_optional_text_does_not_block_credential_reference():
+    ui, device = control(env={"KAKAO_PASSWORD": "private-password"})
+    state = ui.observe()
+    ui.input(state["snapshot"], 2, text="", credential="KAKAO_PASSWORD")
+    assert device.calls == [("text", 2, "private-password")]
+
+
+def test_english_android_permission_allow_requires_owner_approval():
+    ui, device = control()
+    device.xml = '<hierarchy><node text="WHILE USING THE APP" resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" package="com.android.permissioncontroller" clickable="true" bounds="[0,0][200,80]"/></hierarchy>'
+    state = ui.observe()
+    with pytest.raises(PermissionError):
+        ui.click(state["snapshot"], 0, expected_label="WHILE USING THE APP")
+    assert device.calls == []
 
 
 def test_device_error_does_not_echo_credentials_to_model():
@@ -168,6 +220,27 @@ def test_tools_are_available_to_existing_agent_loop():
     assert {"android_open", "android_screen", "android_click", "android_input", "android_swipe", "android_key"} <= names
 
 
+def test_plain_text_and_credential_tools_have_separate_required_arguments():
+    ui, _ = control()
+    tools = {tool.name: tool for tool in build_android_tools(ui)}
+    assert "credential" not in tools["android_input"].parameters["properties"]
+    assert "text" in tools["android_input"].parameters["required"]
+    assert "text" not in tools["android_credential"].parameters["properties"]
+    assert "credential" in tools["android_credential"].parameters["required"]
+
+
+def test_keyboard_submit_requires_fresh_focused_input():
+    ui, device = control()
+    state = ui.observe()
+    with pytest.raises(ValueError, match="focused"):
+        ui.submit(state["snapshot"], 1)
+    assert not device.calls
+    device.xml = XML.replace('resource-id="chat"', 'resource-id="chat" focused="true"')
+    state = ui.observe()
+    ui.submit(state["snapshot"], 1)
+    assert device.calls == [("key", "enter")]
+
+
 def test_real_adapter_uses_native_set_text_without_keyboard_install():
     calls = []
 
@@ -184,7 +257,9 @@ def test_real_adapter_uses_native_set_text_without_keyboard_install():
 
     adapter = UiaDevice()
     adapter._device = Native()
-    adapter.set_text(1, "한글 입력")
+    target = parse_nodes(XML)[1]
+    target["id"] = 2  # Index from the previous hierarchy must not select password.
+    adapter.set_text(target, "한글 입력")
     assert calls == [{"className": "android.widget.EditText", "resourceId": "chat", "instance": 0}, "한글 입력"]
 
 

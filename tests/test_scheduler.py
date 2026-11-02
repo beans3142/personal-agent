@@ -108,3 +108,11 @@ def test_long_text_is_split_for_discord():
     assert len(parts) == 3
     assert all(len(part) <= 2000 for part in parts)
     assert "".join(parts) == "가" * 4500
+
+
+def test_long_reply_does_not_split_a_short_metrics_line():
+    footer = "-# 처리 26.6초 · 토큰 입력 5,995 / 출력 1,438 · 모델 호출 2회"
+    text = "가" * 1980 + "\n\n" + footer
+    parts = scheduler.split_text(text)
+    assert parts[-1].endswith(footer)
+    assert "".join(parts) == text
