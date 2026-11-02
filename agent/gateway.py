@@ -1,4 +1,4 @@
-"""Discord gateway: owner DMs go to the agent loop, and scheduled results come back as DMs."""
+"""Owner-only Discord commands via DM or guild mention; results return at the source."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -43,16 +44,24 @@ INSTRUCTIONS = """너는 사용자의 개인 Agent다. 요청을 끝까지 처�
 """
 
 
-def instructions_for(memory: Memory) -> str:
-    facts = "\n".join(f"- ({row['id']}) {row['text']}" for row in reversed(memory.recent()))
+def instructions_for(memory: Memory, public: bool = False) -> str:
+    facts = "" if public else "\n".join(f"- ({row['id']}) {row['text']}" for row in reversed(memory.recent()))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M (%A) KST")
-    return f"{INSTRUCTIONS}\n현재 시각: {now}\n\n기억:\n{facts or '- 없음'}"
+    context = "\n공개 채널에 답변한다. 다른 채널이나 DM의 대화·개인정보를 요청과 무관하게 공개하지 않는다." if public else ""
+    return f"{INSTRUCTIONS}{context}\n현재 시각: {now}\n\n기억:\n{facts or '- 없음'}"
 
 
 class ApprovalView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, owner_id: int):
         super().__init__(timeout=APPROVAL_TIMEOUT_SECONDS)
+        self.owner_id = owner_id
         self.approved = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.owner_id:
+            return True
+        await interaction.response.send_message("소유자만 승인할 수 있어요.", ephemeral=True)
+        return False
 
     @discord.ui.button(label="허용", style=discord.ButtonStyle.success)
     async def allow(self, interaction: discord.Interaction, _button):
@@ -70,6 +79,8 @@ class Gateway(discord.Client):
     def __init__(self, owner_id: int, model, memory: Memory, tools: list[Tool], store: Path, auth=None, android=None):
         intents = discord.Intents.none()
         intents.dm_messages = True
+        intents.guilds = True
+        intents.guild_messages = True
         intents.message_content = True
         super().__init__(intents=intents)
         self.owner_id = owner_id
@@ -99,13 +110,14 @@ class Gateway(discord.Client):
 
     async def send_long(self, channel, text: str):
         for part in scheduler.split_text(text or "답변이 비어 있어요."):
-            await channel.send(part)
+            await channel.send(part, allowed_mentions=discord.AllowedMentions.none())
 
     def approver(self, channel):
         def approve(name: str, args: dict) -> bool:
             async def ask():
-                view = ApprovalView()
-                await channel.send(f"실행할까요? `{name}`\n```json\n{json.dumps(args, ensure_ascii=False)[:1500]}\n```", view=view)
+                view = ApprovalView(self.owner_id)
+                approval_channel = await self.owner_dm()
+                await approval_channel.send(f"실행할까요? `{name}`\n```json\n{json.dumps(args, ensure_ascii=False)[:1500]}\n```", view=view)
                 await view.wait()
                 return view.approved
 
@@ -118,26 +130,62 @@ class Gateway(discord.Client):
         if self.android:
             self.android.approve = approve
         try:
-            return run_turn(self.model, self.tools, instructions_for(self.memory), history, text, approve, max_steps=30)
+            return run_turn(self.model, self.tools, instructions_for(self.memory, public=chat.startswith("guild:")), history, text, approve, max_steps=30)
         finally:
             if self.android:
                 self.android.approve = lambda *_: False
             self.memory.save_history(chat, history)
 
     async def on_message(self, message: discord.Message):
-        if message.author.id != self.owner_id or message.guild is not None or not message.content.strip():
+        if message.author.id != self.owner_id or message.author.bot:
             return
-        async with self.turn_lock, message.channel.typing():
+        text = message.content.strip()
+        channel = message.channel
+        if message.guild is not None:
+            if self.user is None:
+                return
+            mention = rf"<@!?{self.user.id}>"
+            if not re.search(mention, text):
+                return
+            text = re.sub(mention, "", text).strip()
+            if not text:
+                return
+        if not text:
+            return
+        pending = False
+        try:
+            await message.add_reaction("⏳")
+            pending = True
+        except discord.HTTPException:
+            pass
+        status = "✅"
+        async with self.turn_lock, channel.typing():
             try:
-                reply = await asyncio.to_thread(self.turn, str(message.channel.id), message.content, self.approver(message.channel))
+                chat = f"guild:{channel.id}" if message.guild is not None else str(channel.id)
+                reply = await asyncio.to_thread(self.turn, chat, text, self.approver(channel))
             except CodexError as error:
                 log.warning("model failed: %s", error)
-                reply = f"모델 호출에 실패했어요: {error}"
+                status = "❌"
+                reply = "모델 호출에 실패했어요. 잠시 뒤 다시 요청해 주세요."
             except Exception:
                 log.exception("turn failed")
+                status = "❌"
                 reply = "처리 중 오류가 났어요. 서버 로그를 확인해야 해요."
-        await self.send_long(message.channel, reply)
-        await self.send_outbox(message.channel)
+            try:
+                await self.send_long(channel, reply)
+                await self.send_outbox(channel)
+            except discord.HTTPException:
+                status = "❌"
+                log.warning("Discord reply delivery failed")
+        if pending:
+            try:
+                await message.remove_reaction("⏳", self.user)
+            except discord.HTTPException:
+                pass
+        try:
+            await message.add_reaction(status)
+        except discord.HTTPException:
+            pass
 
     async def send_outbox(self, channel) -> None:
         outbox = DATA / "outbox"
