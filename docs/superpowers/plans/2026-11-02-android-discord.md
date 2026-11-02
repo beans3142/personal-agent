@@ -19,7 +19,7 @@ Execution:
 - [x] Expose allowlisted app launch in the existing owner portal for actual setup and inspection.
 - [x] Install dependencies on ARM, verify Android service and app installation.
 - [x] Move the gateway runtime and existing state to ARM, retaining a rollback copy and stopping the old gateway.
-- [ ] Verify owner Discord command -> model -> Android tool -> reply/screenshot, and restart persistence.
+- [x] Verify owner Discord command -> model -> Android tool -> reply/screenshot, and restart persistence.
 - [ ] Update local handoff with verified results and exact remaining blockers, without credentials.
 
 Live investigation: Waydroid repeatedly crashed in the ARM software renderer. Disabling Mesa worker threads, switching EGL to Mesa, and testing the official April 2026 vendor image did not establish stable app use. Do not repeat these as untried fixes or describe a transient terms screen as compatibility proof.
@@ -48,4 +48,5 @@ Verified update (2026-11-02, 16:32 KST):
 - Obsolete Android UI trees are replaced with a superseded marker before later model calls. Three repeated action errors stop the loop; step-limit/repeated-error replies use a failure reaction, not a success reaction. Token totals from different tasks are not a controlled cost benchmark.
 - Baemin delivery address was actually registered and its selected home screen verified. Live Discord search for Burger King then showed Delivery 3 and three named stores. No cart/order/payment occurred. Do not publish the owner's address in this repository. Account login/checkout has not been verified; browsing works as a guest.
 - Kakao credentials were entered successfully using environment references. Login reached the secondary-device registration code on the existing phone; code expired while waiting. The owner was asked to prepare the phone before a fresh code is generated. Kakao messaging is not yet operational.
-- Reviewer found and verified fixes for stale outbox images after a failed transit lookup, after-midnight timetable ordering, and final text-entry index races. Full suite: 155 passed. Android restart/persistence verification is being performed separately.
+- Reviewer found and verified fixes for stale outbox images after a failed transit lookup, after-midnight timetable ordering, and final text-entry index races. Full suite: 155 passed.
+- Restart persistence verified at 16:35 KST: restarted the ReDroid container and gateway, invoked Baemin through web Discord, and independently inspected the selected-address home screen. The registered delivery address persisted. The check did not register another address or order anything.
