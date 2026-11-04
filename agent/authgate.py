@@ -51,7 +51,7 @@ SITES = {
     "naver": Site(
         name="naver",
         login_url="https://nid.naver.com/nidlogin.login",
-        check_url="https://www.naver.com/",
+        check_url="https://mail.naver.com/v2/folders/0",
         user_selector="#id",
         password_selector="#pw",
         submit_selector="button[id^='loginBtn']:visible",
@@ -118,6 +118,7 @@ class AuthGate:
         try:
             page.goto(site.check_url)
             if page.has(site.logged_in_selector):
+                self.browser.save(site)
                 return "ok"
             credentials = self.credentials.get(name)
             if credentials is None:
@@ -231,6 +232,8 @@ class PlaywrightPage:
     def has(self, selector: str) -> bool:
         if selector.startswith("cookie:"):
             name = selector.split(":", 1)[1]
+            if name == 'NID_AUT' and 'nid.naver.com/nidlogin' in self.page.url:
+                return False
             return any(cookie["name"] == name for cookie in self.page.context.cookies())
         return self.page.locator(selector).count() > 0
 
@@ -242,6 +245,8 @@ class PlaywrightPage:
         self.page.wait_for_timeout(500)
 
     def compose_mail(self, to: str, subject: str, body: str) -> None:
+        if "nid.naver.com" in self.page.url:
+            raise AuthBlocked("mail_session_expired")
         self.page.wait_for_selector("#recipient_input_element", timeout=20000)
         self.page.fill("#recipient_input_element", to)
         self.page.keyboard.press("Enter")

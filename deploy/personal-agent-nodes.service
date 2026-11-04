@@ -1,0 +1,17 @@
+[Unit]
+Description=Daevis authenticated bidirectional device relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/personal-agent
+Environment=DAEVIS_NODE_BIND=127.0.0.1
+EnvironmentFile=-/home/ubuntu/personal-agent/data/node-relay.env
+ExecStart=/home/ubuntu/personal-agent/.venv/bin/python -m agent.device_nodes --data /home/ubuntu/personal-agent/data serve --bind ${DAEVIS_NODE_BIND} --port 8791
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

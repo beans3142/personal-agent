@@ -12,6 +12,26 @@ KST = timezone(timedelta(hours=9))
 CARDS = ".list_pubtrans_directions_summary > li"
 
 
+def format_routes(data: dict) -> str:
+    parts = []
+    for number, route in enumerate(data.get('routes', [])[:3], 1):
+        summary, detail = route.get('summary', ''), route.get('detail', '')
+        def found(pattern, text):
+            match = re.search(pattern, text)
+            return re.sub(r'\s+', ' ', match[0]).strip() if match else ''
+        facts = [found(r'\d+시간(?:\s*\d+분)?|\d+분', summary),
+                 found(r'(?:(?:오전|오후)\s*)?\d+:\d+\s*도착', summary),
+                 found(r'환승\s*\d+회', detail),
+                 found(r'도보\s*\d+분', detail),
+                 found(r'\d[\d,]*원', summary)]
+        boarding = [found(r'\d+:\d+\s*출발', detail)]
+        boarding += re.findall(r'빠른(?:환승|하차):?\s*\d+-\d+(?:,\s*\d+-\d+)*', detail)[:2]
+        label = '·'.join(route.get('reasons', [])) or '대안'
+        parts.append(f"{number}. **{label}**\n" + ' · '.join(x for x in facts if x)
+                     + ('\n' + ' · '.join(x for x in boarding if x) if any(boarding) else ''))
+    return '\n\n'.join(parts) + '\n예정 시간표 기준 · 네이버 지도' if parts else '경로 조회를 완료하지 못했습니다.'
+
+
 def candidate_key(text: str) -> str:
     return re.sub(r"최적|최소\s*시간|최소\s*환승|최소\s*도보|[\s·]", "", text)
 
@@ -73,6 +93,15 @@ def _place(page, field: str, query: str) -> str:
     # A station query must not silently select a KTX terminal or an exit.
     station = [i for i, text in enumerate(texts) if "지하철,전철" in text and query in text]
     matches = station if query.endswith("역") and station else [i for i, text in enumerate(texts) if query in text]
+    if len(matches) > 1 and matches == station:
+        # Transfer stations have one suggestion per line. Only collapse those
+        # whose station name and full street address agree exactly.
+        identities = []
+        for i in matches:
+            lines = [line.strip() for line in texts[i].splitlines() if line.strip()]
+            identities.append((next((line.split()[0] for line in lines if line.startswith(query + ' ')), ''), lines[-1]))
+        if identities and len(set(identities)) == 1 and identities[0][0] == query:
+            matches = matches[:1]
     if len(matches) != 1:
         raise RuntimeError(f"장소를 확정할 수 없습니다: {query}. 후보: " + " / ".join(texts[:5]))
     selected = matches[0]
@@ -104,15 +133,26 @@ def _sort(page, label: str) -> list[str]:
 
 
 def search(origin: str, destination: str, depart_at: str | None, outbox: Path) -> str:
-    from playwright.sync_api import sync_playwright
+    from .browser_worker import shared_browser
 
     depart = datetime.fromisoformat(depart_at) if depart_at else datetime.now(KST)
     depart = depart.astimezone(KST) if depart.tzinfo else depart.replace(tzinfo=KST)
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+    return shared_browser().run(lambda browser: _search_in(browser, origin, destination, depart, outbox))
+
+
+def _search_in(browser, origin: str, destination: str, depart: datetime, outbox: Path) -> str:
+    from .browser_worker import job_cancelled
+
+    def check_active():
+        if job_cancelled():
+            raise TimeoutError("browser request expired")
+
+    check_active()
+    # The browser is shared and kept running; only this request's page is closed.
+    if True:
         generated = []
+        page = browser.new_page(locale="ko-KR", timezone_id="Asia/Seoul", viewport={"width": 1600, "height": 1100})
         try:
-            page = browser.new_page(locale="ko-KR", timezone_id="Asia/Seoul", viewport={"width": 1600, "height": 1100})
             page.goto("https://map.naver.com/p/directions/-/-/-/transit", wait_until="domcontentloaded", timeout=45000)
             resolved = [_place(page, "출발지 입력", origin), _place(page, "도착지 입력", destination)]
             page.get_by_role("button", name="길찾기", exact=True).click()
@@ -154,10 +194,13 @@ def search(origin: str, destination: str, depart_at: str | None, outbox: Path) -
                 if number == 1:
                     # Capture the map after the detail panel is removed, rather than mid-slide.
                     page.locator("#sub_panel").wait_for(state="hidden")
+                    check_active()
                     route["image"] = f"route-{request_id}-1.png"
                     image_path = outbox / route["image"]
                     generated.append(image_path)
                     page.screenshot(path=str(image_path), animations="disabled")
+                    check_active()
+            check_active()
             return json.dumps({"source": "네이버 지도", "queried_at": datetime.now(KST).isoformat(timespec="minutes"),
                                "departure_setting": selected_time, "places": resolved, "routes": selected,
                                "note": "실제 조회한 예정 경로. 도착 예정은 보장되지 않음. 시간표는 예정 운행이며 실시간 도착정보와 구분. 빠른 승하차는 detail에 제공된 항목만 사용."}, ensure_ascii=False)
@@ -166,4 +209,4 @@ def search(origin: str, destination: str, depart_at: str | None, outbox: Path) -
                 path.unlink(missing_ok=True)
             raise
         finally:
-            browser.close()
+            page.close()

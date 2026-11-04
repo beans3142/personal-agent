@@ -22,6 +22,7 @@ import httpx
 from . import scheduler
 from .loop import Tool
 from .memory import Memory
+from .artifacts import current_outbox
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36"
 IMAP_HOST = "imap.naver.com"
@@ -265,7 +266,7 @@ def build_tools(memory: Memory, schedule_store: Path, env=os.environ) -> list[To
              _obj(["uid"], uid=STRING), lambda a: mail_read(env, a["uid"])),
         Tool("route_search", "네이버 지도에서 빠른 도착·최소 환승·최소 도보 경로를 최대 3개 조회한다. 경로별 지도 이미지, 예정 도착·승차 시각, 빠른 환승·하차 정보와 시간표를 함께 준다. depart_at 생략 시 지금 출발. 정확한 장소명 사용. 조회 실패를 추측으로 대체하지 않는다.",
              _obj(["origin", "destination"], origin=STRING, destination=STRING, depart_at=STRING),
-             lambda a: route_search(a["origin"], a["destination"], a.get("depart_at"), Path(schedule_store).parent / "outbox")),
+             lambda a: route_search(a["origin"], a["destination"], a.get("depart_at"), current_outbox(Path(schedule_store).parent / "outbox"))),
         Tool("map_search", "장소를 검색해 이름, 주소, 전화번호, 링크를 돌려준다.",
              _obj(["query"], query=STRING, limit=INTEGER), lambda a: map_search(env, a["query"], a.get("limit", 5))),
     ]

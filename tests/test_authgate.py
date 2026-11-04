@@ -4,6 +4,17 @@ import pytest
 
 from agent.authgate import AuthBlocked, AuthGate, EnvCredentials, Site, build_auth_tool
 
+
+def test_stale_naver_cookie_on_login_redirect_is_not_authenticated():
+    from types import SimpleNamespace
+    from agent.authgate import PlaywrightPage
+    page = SimpleNamespace(url='https://nid.naver.com/nidlogin.login?url=mail',
+        context=SimpleNamespace(cookies=lambda: [{'name': 'NID_AUT'}]))
+    wrapped = PlaywrightPage(page)
+    assert not wrapped.has('cookie:NID_AUT')
+    page.url = 'https://mail.naver.com/v2/folders/0'
+    assert wrapped.has('cookie:NID_AUT')
+
 SITE = Site(
     name="demo",
     login_url="https://demo/login",
@@ -86,6 +97,7 @@ def test_valid_session_does_not_use_password(vault):
     auth, browser = gate(vault, page)
     assert auth.ensure("demo") == "ok"
     assert page.filled == {}
+    assert browser.saved == ["demo"]
 
 
 def test_expired_session_logs_in_again_and_saves(vault):

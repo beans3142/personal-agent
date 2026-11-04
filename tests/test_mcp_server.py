@@ -7,7 +7,7 @@ import pytest
 
 from agent.loop import Tool
 from agent.mcp_server import ToolBridge, create_server
-from agent.mcp_server import DiscordApproval
+from agent.mcp_server import DiscordApproval, owner_request_active, scoped_allowlist
 
 
 def sample(name="memory_search", approval=False):
@@ -53,6 +53,40 @@ def test_write_tools_are_never_advertised_as_safe_to_retry():
     tool = ToolBridge([sample("mail_send")], {"mail_send"}).list_tools()[0]
     assert tool.annotations.readOnlyHint is False
     assert tool.annotations.idempotentHint is False
+
+
+def test_owner_request_lease_cannot_be_forged_in_tool_arguments():
+    assert not owner_request_active({"OWNER_ID":"123","DAEVIS_MCP_OWNER_REQUEST":"999","DAEVIS_MCP_REQUEST_EXPIRES":"9999999999"})
+    assert not owner_request_active({"OWNER_ID":"123","DAEVIS_MCP_OWNER_REQUEST":"123","DAEVIS_MCP_REQUEST_EXPIRES":"0"})
+    assert owner_request_active({"OWNER_ID":"123","DAEVIS_MCP_OWNER_REQUEST":"123","DAEVIS_MCP_REQUEST_EXPIRES":"9999999999"})
+
+
+def test_runtime_passes_trusted_controller_request_id_to_self_tool(tmp_path, monkeypatch):
+    import agent.kakao_self as kakao_self
+    from agent.mcp_server import build_runtime
+    seen = []
+    def builder(device, data_path, *, request_id=None):
+        seen.append(request_id)
+        return [sample('kakao_self_send', approval=True)]
+    monkeypatch.setattr(kakao_self, 'build_kakao_self_tools', builder)
+    runtime = build_runtime(tmp_path, {'DAEVIS_MCP_REQUEST_ID': 'trusted-request',
+                                     'DAEVIS_MCP_ALLOW_TOOLS': 'kakao_self_send'})
+    assert seen == ['trusted-request']
+    assert 'kakao_self_send' in runtime.allowed
+
+
+def test_public_scope_cannot_invoke_private_tools_even_via_recipes():
+    allowed=scoped_allowlist({"memory_search","mail_read","android_screen","route_search","android_credential"},{"DAEVIS_MCP_PUBLIC":"1"})
+    assert allowed == {"android_screen","route_search"}
+
+
+def test_readonly_scope_cannot_offer_write_dispatchers():
+    assert scoped_allowlist({'route_search','android_click','recipe_run','n8n_run'},{'DAEVIS_MCP_READ_ONLY':'1'}) == {'route_search'}
+
+
+def test_plan_denial_is_a_mcp_error():
+    tool=Tool('plan_execute','',{'type':'object','properties':{}},lambda a:'{"status":"denied","results":[]}')
+    assert ToolBridge([tool],{'plan_execute'}).call('plan_execute',{}).isError
 
 
 def test_exception_does_not_disclose_secret():

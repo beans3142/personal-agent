@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .loop import Tool
+from .artifacts import current_outbox
 
 APPS = {"kakao": "com.kakao.talk", "baemin": "com.sampleapp", "play_store": "com.android.vending"}
 SECRET_KEYS = {f"{site}_{field}" for site in ("KAKAO", "NAVER", "GOOGLE", "COUPANG", "BAEMIN") for field in ("ID", "PASSWORD", "PHONE")}
@@ -123,6 +124,7 @@ class AndroidControl:
         self.nodes = []
 
     def observe(self) -> dict:
+        outbox = current_outbox(self.outbox) if self.outbox is not None else None
         self.nodes = parse_nodes(self.device.dump_hierarchy())
         self.snapshot = uuid.uuid4().hex[:12]
         visible = []
@@ -152,12 +154,12 @@ class AndroidControl:
                 item["focused"] = node["focused"]
             visible.append(item)
         result = {"snapshot": self.snapshot, "nodes": visible}
-        if self.outbox and any(node["package"] == "com.kakao.talk" for node in self.nodes):
+        if outbox and any(node["package"] == "com.kakao.talk" for node in self.nodes):
             # Chat screenshots expose unrelated conversations in Discord.
-            (self.outbox / "android.png").unlink(missing_ok=True)
-        elif self.outbox:
-            self.outbox.mkdir(parents=True, exist_ok=True)
-            path = self.outbox / "android.png"
+            (outbox / "android.png").unlink(missing_ok=True)
+        elif outbox:
+            outbox.mkdir(parents=True, exist_ok=True)
+            path = outbox / "android.png"
             self.device.screenshot(path)
             result["screenshot"] = path.name
         return result

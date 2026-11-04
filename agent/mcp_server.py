@@ -30,8 +30,23 @@ from .loop import Tool
 log = logging.getLogger(__name__)
 READ_TOOLS = frozenset({
     "memory_search", "schedule_list", "web_search", "web_fetch", "mail_list",
-    "mail_read", "route_search", "map_search", "android_screen",
+    "mail_read", "route_search", "map_search", "android_screen", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
+ROUTINE_ANDROID = frozenset({"android_open", "android_click", "android_input", "android_swipe", "android_key"})
+PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs"})
+DISPATCH_TOOLS = frozenset({"plan_execute", "recipe_run"})
+
+
+def owner_request_active(env) -> bool:
+    try:
+        return bool(env.get("OWNER_ID")) and env.get("DAEVIS_MCP_OWNER_REQUEST") == env["OWNER_ID"] and float(env.get("DAEVIS_MCP_REQUEST_EXPIRES", "0")) > time.time()
+    except (ValueError, TypeError):
+        return False
+
+
+def scoped_allowlist(allowed, env):
+    scoped = set(allowed) - PRIVATE_TOOLS if env.get("DAEVIS_MCP_PUBLIC") == "1" else set(allowed)
+    return scoped & READ_TOOLS if env.get("DAEVIS_MCP_READ_ONLY") == "1" else scoped
 
 
 def result(text: str, error: bool = False) -> types.CallToolResult:
@@ -70,12 +85,16 @@ class ToolBridge:
         except jsonschema.ValidationError:
             return result("error: invalid tool arguments", True)
         try:
-            if (tool.needs_approval or name not in READ_TOOLS) and not self.approve(name, deepcopy(args)):
+            if (tool.needs_approval or (name not in READ_TOOLS and name not in DISPATCH_TOOLS)) and not self.approve(name, deepcopy(args)):
                 return result("denied: owner approval required", True)
             text = str(tool.run(args))
             if name != "android_screen" and len(text) > 8000:
                 text = text[:8000] + "\n[truncated]"
-            return result(text, text.startswith(("error:", "denied:", "blocked:")))
+            failed = text.startswith(("error:", "denied:", "blocked:"))
+            if name in DISPATCH_TOOLS:
+                payload = json.loads(text)
+                failed = failed or payload.get("status") in {"denied", "error", "blocked", "uncertain", "failed"}
+            return result(text, failed)
         except Exception as error:
             # Site/browser exceptions can contain passwords, URLs and chat text.
             log.warning("tool failed: %s (%s)", name, type(error).__name__)
@@ -136,22 +155,41 @@ def build_runtime(data: Path, env) -> ToolBridge:
     from .memory import Memory
     from .naver_mail import build_mail_tool
     from .tools import build_tools
+    from .n8n_tools import build_n8n_tools
+    from .device_nodes import build_device_tools
+    from .kakao_self import build_kakao_self_tools
+    from .recipes import RecipeExecutor, build_recipe_tools
 
     mode = env.get("DAEVIS_MCP_APPROVAL", "deny")
     if mode not in {"deny", "discord"}:
         raise ValueError("DAEVIS_MCP_APPROVAL must be deny or discord")
-    approve = DiscordApproval(env.get("DISCORD_BOT_TOKEN", ""), env.get("OWNER_ID", "")) if mode == "discord" else lambda *_: False
+    request_approval = DiscordApproval(env.get("DISCORD_BOT_TOKEN", ""), env.get("OWNER_ID", "")) if mode == "discord" else lambda *_: False
+    def approve(name, args):
+        # Only the owner-only gateway's local worker gets this short-lived lease.
+        # AndroidControl's consequential callback includes `button`, and must
+        # still ask the owner even though ordinary navigation is delegated.
+        if env.get("DAEVIS_MCP_OWNER_REQUEST"):
+            if not owner_request_active(env):
+                return False
+            if name in ROUTINE_ANDROID and "button" not in args:
+                return True
+        accepted = request_approval(name, args)
+        return accepted and (not env.get("DAEVIS_MCP_OWNER_REQUEST") or owner_request_active(env))
     data.mkdir(parents=True, exist_ok=True)
     memory = Memory(data / "agent.db")
     browser = PlaywrightBrowser(data / "sessions")
     gate = AuthGate(EnvCredentials(env), browser)
     android = AndroidControl(UiaDevice(env.get("ANDROID_SERIAL")), env=env, outbox=data / "outbox", approve=approve)
     tools = build_tools(memory, data / "schedule.json", env) + build_android_tools(android)
+    tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)
+    tools += build_kakao_self_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'))
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]
     if env.get("DISCORD_BOT_TOKEN"):
         tools.append(build_discord_user_tool(gate, browser, env["DISCORD_BOT_TOKEN"]))
     raw = env.get("DAEVIS_MCP_ALLOW_TOOLS", "memory_search,route_search,map_search,android_screen")
-    allowed = {name.strip() for name in raw.split(",") if name.strip()}
+    allowed = scoped_allowlist({name.strip() for name in raw.split(",") if name.strip()}, env)
+    underlying = [tool for tool in tools if tool.name in allowed]
+    tools += build_recipe_tools(RecipeExecutor(underlying, approve, data / "recipes.json"))
     return ToolBridge(tools, allowed, approve)
 
 

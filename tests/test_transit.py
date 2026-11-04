@@ -3,6 +3,36 @@ from datetime import datetime
 from agent.transit import KST, candidate_key, choose_candidates, compact_detail, upcoming_timetable
 
 
+def test_discord_routes_keep_decision_facts_without_raw_panel_dump():
+    from agent.transit import format_routes
+    route = {'reasons': ['빠른 도착'], 'summary': '1시간1분\n오후 12:11 도착\n1,950원',
+        'detail': '환승 1회도보 2분1,950원\n11:10 출발\n빠른환승: 7-2\n빠른하차: 2-4\n' + '중간역 정보 ' * 100}
+    reply = format_routes({'routes': [route, route, route]})
+    assert '오후 12:11 도착' in reply and '환승 1회' in reply and '도보 2분' in reply
+    assert '11:10 출발' in reply and '7-2' in reply and '2-4' in reply
+    assert '중간역 정보' not in reply and len(reply) < 600
+
+
+def test_station_line_suggestions_collapse_only_for_identical_address():
+    from types import SimpleNamespace
+    import pytest
+    from agent.transit import _place
+    clicked = []
+    texts = ['장소\n지하철,전철\n선릉역 2호선\n서울 강남구 테헤란로 340',
+             '장소\n지하철,전철\n선릉역 수인분당선\n서울 강남구 테헤란로 340']
+    options = SimpleNamespace(first=SimpleNamespace(wait_for=lambda **k: None),
+        all_inner_texts=lambda: texts,
+        nth=lambda i: SimpleNamespace(click=lambda: clicked.append(i)))
+    page = SimpleNamespace(locator=lambda _: options, get_by_role=lambda *a, **k:
+        SimpleNamespace(fill=lambda _: None, input_value=lambda: '선릉역 2호선'))
+    assert _place(page, '도착지 입력', '선릉역') == '선릉역 2호선'
+    assert clicked == [0]
+    texts[1] = texts[1].replace('340', '999')
+    with pytest.raises(RuntimeError):
+        _place(page, '도착지 입력', '선릉역')
+    assert clicked == [0]
+
+
 def test_three_criteria_deduplicate_then_fill_with_another_fast_route():
     fast = ["최적\n1시간4분\n오후 5:10 도착", "1시간21분\n오후 5:23 도착"]
     walk = "최소시간 · 최소도보\n1시간1분\n오후 5:29 도착"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Daevis public-map browser (loopback CDP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/personal-agent
+ExecStart=/home/ubuntu/personal-agent/.venv/bin/python /home/ubuntu/personal-agent/deploy/browser-daemon.py
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=15
+MemoryMax=800M
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

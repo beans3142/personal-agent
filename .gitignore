@@ -19,6 +19,8 @@ data/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-*/
+.test-device-*/
 
 # Local handoff notes
 HANDOFF.md

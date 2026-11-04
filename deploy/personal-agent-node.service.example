@@ -1,0 +1,23 @@
+# EXAMPLE ONLY. Install on an always-on Linux LAN node, never automatically.
+# Configure private /home/node/.config/personal-agent/node.json + token first.
+# Termux uses its own foreground/session lifecycle; this systemd example is Linux.
+[Unit]
+Description=Personal agent outbound device node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=node
+ExecStart=/usr/bin/python3 /home/node/device-node.py --config /home/node/.config/personal-agent/node.json
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/node/.config/personal-agent
+
+[Install]
+WantedBy=multi-user.target

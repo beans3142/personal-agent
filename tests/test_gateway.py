@@ -153,3 +153,48 @@ def test_quoted_send_does_not_call_model_or_expose_message(monkeypatch):
     assert sent == [('영진','private greeting')]
     assert result.startswith('메시지 전송을 완료했습니다.') and 'private greeting' not in result
     assert '모델 호출 0회' in result
+
+
+def test_hermes_backend_retains_kakao_privacy_and_public_context():
+    from agent.hermes_runner import HermesResult
+    saved=[]
+    calls=[]
+    memory=SimpleNamespace(load_history=lambda _:[],save_history=lambda _,history:saved.extend(history),recent=lambda:[{'id':1,'text':'secret address'}])
+    def run(text,instructions,history,public=False):
+        calls.append((instructions,public))
+        return HermesResult('KAKAO_SENT\nprivate chat',True,1000,12,2,1,'model')
+    fake=SimpleNamespace(memory=memory,android=None,engine=SimpleNamespace(run=run))
+    output=Gateway.turn(fake,'guild:1','응 보내줘',lambda *_:True)
+    assert output.startswith('메시지 전송을 완료했습니다.')
+    assert 'private chat' not in output and 'private chat' not in str(saved)
+    assert calls[0][1] is True and 'secret address' not in calls[0][0]
+    assert 'Hermes' in output
+
+
+def test_fixed_route_executes_code_without_model():
+    from agent.loop import Tool
+    memory=SimpleNamespace(load_history=lambda _:[],save_history=lambda *a:None,recent=lambda:[])
+    tool=Tool('route_search','',{'type':'object','properties':{'origin':{'type':'string'},'destination':{'type':'string'}},'required':['origin','destination']},lambda a:'{"routes":[{"summary":"1시간 11:30 도착","detail":"빠른환승 3-2","reasons":["최소 환승"]}]}')
+    fake=SimpleNamespace(memory=memory,android=None,engine=SimpleNamespace(run=lambda *a,**k:pytest.fail('unnecessary model')),tools=[tool])
+    reply=Gateway.turn(fake,'guild:1','경로 "행신역" → "선릉역"',lambda *a:False)
+    assert '11:30 도착' in reply and '빠른환승 3-2' in reply
+    assert '모델 호출 0회' in reply and '방식 프로그램' in reply
+
+
+def test_private_mcp_approval_commands_never_become_model_requests():
+    bot,_,calls=gateway()
+    msg=message(content='승인 0123456789abcdef',guild=False)
+    asyncio.run(Gateway.on_message(bot,msg))
+    assert not calls
+
+
+def test_scheduled_hermes_results_also_hide_kakao_content():
+    from agent.hermes_gateway import HermesGateway
+    from agent.hermes_runner import HermesResult
+    scopes=[]
+    def run(*a,**k):
+        scopes.append(k)
+        return HermesResult('KAKAO_CHECKED\nprivate conversation',True)
+    fake=SimpleNamespace(memory=SimpleNamespace(recent=lambda:[]),engine=SimpleNamespace(run=run))
+    output=HermesGateway.run_scheduled(fake,'read status')
+    assert 'private conversation' not in output and scopes[0]['owner_request'] is False

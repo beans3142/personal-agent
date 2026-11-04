@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -22,7 +23,10 @@ from .loop import REPEATED_ERROR_REPLY, STEP_LIMIT_REPLY, Tool, TurnMetrics, run
 from .memory import Memory
 from .kakao_watch import KakaoWatcher, KakaoRecipientUnavailable
 from .naver_mail import build_mail_tool
+from .power import idle_shutdown_due, power_command, maintenance_active
 from .web_llm import GeminiWeb, QuickLane
+from .hermes_runner import HermesError
+from .artifacts import current_outbox, async_outbox_scope
 from .tools import build_tools
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +35,7 @@ KST = timezone(timedelta(hours=9))
 APPROVAL_TIMEOUT_SECONDS = 300
 TICK_SECONDS = 20
 SESSION_REFRESH_SECONDS = 6 * 3600
+IDLE_CHECK_SECONDS = 300
 MAX_HISTORY_ITEMS = 40
 log = logging.getLogger("agent")
 KAKAO_STATUS = {"KAKAO_SENT": "메시지 전송을 완료했습니다.", "KAKAO_NOT_SENT": "메시지를 보내지 못했습니다.", "KAKAO_RECIPIENT_REQUIRED": "수신자를 확인해야 합니다.", "KAKAO_CHECKED": "카톡 상태를 확인했습니다."}
@@ -118,12 +123,14 @@ class Gateway(discord.Client):
         self.auth = auth
         self.android = android
         self.turn_lock = asyncio.Lock()
+        self.last_activity = datetime.now(timezone.utc)
         self.kakao_watch = KakaoWatcher(android.device, DATA / "kakao-watch.json") if android else None
 
     async def setup_hook(self):
         self.loop.create_task(self.schedule_loop())
         self.loop.create_task(self.session_loop())
         self.loop.create_task(self.kakao_watch_loop())
+        self.loop.create_task(self.idle_shutdown_loop())
 
     async def on_ready(self):
         log.info("connected as %s", self.user)
@@ -178,6 +185,29 @@ class Gateway(discord.Client):
                     safe_kakao_reply = reply
                     history.extend([{"role": "user", "content": text}, {"role": "assistant", "content": reply}])
                     return reply + "\n\n" + metrics.footer(time.monotonic() - started) + " · 방식 프로그램"
+            engine = getattr(self, "engine", None)
+            if engine is not None:
+                from .recipes import fixed_plan, RecipeExecutor
+                plan = fixed_plan(text)
+                if plan:
+                    executed = RecipeExecutor(self.tools,approve).execute(plan)
+                    reply = "경로 조회를 완료하지 못했습니다."
+                    if executed["status"] == "ok":
+                        data = json.loads(executed["results"][0]["output"])
+                        from .transit import format_routes
+                        reply = format_routes(data)
+                    metrics.tool_calls=len(executed["results"])
+                    history.extend([{"role":"user","content":text},{"role":"assistant","content":reply}])
+                    return reply+"\n\n"+metrics.footer(time.monotonic()-started)+" · 방식 프로그램"
+                instructions = instructions_for(self.memory, public=chat.startswith("guild:"))
+                outcome = engine.run(text, instructions, history, public=chat.startswith("guild:"))
+                kakao_used = kakao_used or outcome.kakao_used
+                reply = kakao_status_reply(outcome.text) if kakao_used else outcome.text
+                if kakao_used:
+                    safe_kakao_reply = reply
+                    (current_outbox(DATA / "outbox") / "android.png").unlink(missing_ok=True)
+                history.extend([{"role":"user","content":text},{"role":"assistant","content":reply}])
+                return reply + "\n\n" + outcome.footer(time.monotonic()-started)
             quick = getattr(self, "quick_lane", None)
             answer = quick.try_answer(text) if quick else None
             if answer:
@@ -222,6 +252,14 @@ class Gateway(discord.Client):
                 return
         if not text:
             return
+        if power_command(text):
+            return  # The always-on power bot answers these with the same token.
+        if getattr(self,'draining',False):
+            await self.send_long(channel,"서버가 종료 중입니다. 대비스 온라인으로 다시 켜 주세요.")
+            return
+        self.last_activity = datetime.now(timezone.utc)
+        if re.fullmatch(r"(?:승인|거절) [0-9a-f]{16}",text):
+            return  # Consumed by the owner-only MCP approval broker, never a new model turn.
         watcher = getattr(self, "kakao_watch", None)
         if watcher and re.search(r"자동\s*응답\s*(중지|중단|종료|꺼)", text):
             watcher.stop()
@@ -234,12 +272,18 @@ class Gateway(discord.Client):
         except discord.HTTPException:
             pass
         status = "✅"
-        async with self.turn_lock, channel.typing():
+        turn_started=time.monotonic()
+        async with self.turn_lock, channel.typing(), async_outbox_scope(DATA/'outbox'/uuid.uuid4().hex):
             try:
                 chat = f"guild:{channel.id}" if message.guild is not None else str(channel.id)
                 reply = await asyncio.to_thread(self.turn, chat, text, self.approver(channel))
-                if reply.startswith((STEP_LIMIT_REPLY, REPEATED_ERROR_REPLY, KAKAO_STATUS["KAKAO_NOT_SENT"], KAKAO_STATUS["KAKAO_RECIPIENT_REQUIRED"], "전송 결과를 확인하지 못했습니다.")):
+                if reply.startswith((STEP_LIMIT_REPLY, REPEATED_ERROR_REPLY, KAKAO_STATUS["KAKAO_NOT_SENT"], KAKAO_STATUS["KAKAO_RECIPIENT_REQUIRED"], "전송 결과를 확인하지 못했습니다.", "경로 조회를 완료하지 못했습니다.")):
                     status = "❌"
+            except HermesError as error:
+                status="❌"
+                reply=str(error)
+                if error.outcome is not None:
+                    reply+="\n\n"+error.outcome.footer(time.monotonic()-turn_started)
             except CodexError as error:
                 log.warning("model failed: %s", error)
                 status = "❌"
@@ -265,10 +309,14 @@ class Gateway(discord.Client):
             pass
 
     async def send_outbox(self, channel) -> None:
-        outbox = DATA / "outbox"
+        outbox = current_outbox(DATA / "outbox")
         for path in sorted(outbox.glob("*.png")) if outbox.exists() else []:
             caption = "1번 경로 지도" if re.fullmatch(r"route-[a-z0-9]+-1\.png", path.name) else None
-            await channel.send(content=caption, file=discord.File(path))
+            attachment=discord.File(path)
+            try:
+                await channel.send(content=caption, file=attachment)
+            finally:
+                attachment.close()
             path.unlink()
 
     def run_scheduled(self, text: str) -> str:
@@ -325,6 +373,39 @@ class Gateway(discord.Client):
                 results = await asyncio.to_thread(self.auth.refresh_all)
             log.info("session refresh: %s", results)
             await asyncio.sleep(SESSION_REFRESH_SECONDS)
+
+    async def idle_shutdown_loop(self):
+        """Turns the server off after a quiet period so a forgotten server does not keep costing money."""
+        limit = int(os.environ.get("IDLE_SHUTDOWN_MINUTES", "120"))
+        await self.wait_until_ready()
+        while limit > 0 and not self.is_closed():
+            await asyncio.sleep(IDLE_CHECK_SECONDS)
+            watcher = getattr(self, "kakao_watch", None)
+            busy = self.turn_lock.locked() or bool(watcher and watcher.load().get("enabled")) or maintenance_active(DATA/'maintenance.json',datetime.now(timezone.utc))
+            jobs = len(scheduler.load_jobs(self.store))
+            if idle_shutdown_due(self.last_activity, datetime.now(timezone.utc), limit, busy, jobs):
+                await self.send_long(await self.owner_dm(), f"{limit}분 동안 요청이 없어 서버를 꺼요. 다시 쓰려면 '대비스 온라인'이라고 보내 주세요.")
+                await asyncio.sleep(5)
+                async with self.turn_lock:
+                    now=datetime.now(timezone.utc)
+                    busy=bool(watcher and watcher.load().get('enabled')) or maintenance_active(DATA/'maintenance.json',now)
+                    jobs=len(scheduler.load_jobs(self.store))
+                    if idle_shutdown_due(self.last_activity,now,limit,busy,jobs):
+                        self.draining=True
+                        try:
+                            process=await asyncio.create_subprocess_exec("systemctl", "start", "daevis-idle-poweroff.service")
+                            code=await process.wait()
+                        except OSError:
+                            code=-1
+                        if code == 0:
+                            return
+                        self.draining=False
+                        self.last_activity=datetime.now(timezone.utc)
+                        log.warning("idle shutdown request failed; resumed request handling")
+                        try:
+                            await self.send_long(await self.owner_dm(), "자동 종료 요청에 실패했어요. 종료 상태를 확인해 주세요. 요청 대기를 다시 시작합니다.")
+                        except Exception:
+                            log.warning("idle shutdown failure notice could not be delivered")
 
     async def schedule_loop(self):
         await self.wait_until_ready()

@@ -1,0 +1,7 @@
+[Unit]
+Description=Daevis fixed idle poweroff action
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/sbin/shutdown -h now

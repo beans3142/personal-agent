@@ -1,0 +1,19 @@
+[Unit]
+Description=Daevis owner-only Discord gateway using Hermes
+After=network-online.target
+Wants=network-online.target
+Conflicts=personal-agent.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/personal-agent
+EnvironmentFile=/home/ubuntu/personal-agent/.env
+ExecStart=/home/ubuntu/personal-agent/.venv/bin/python -m agent.hermes_gateway
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

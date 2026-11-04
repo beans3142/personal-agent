@@ -1,0 +1,10 @@
+// Install root-owned under /etc/polkit-1/rules.d/.
+// The unprivileged gateway may only start this fixed root-owned action.
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        subject.user === "ubuntu" &&
+        action.lookup("unit") === "daevis-idle-poweroff.service" &&
+        action.lookup("verb") === "start") {
+        return polkit.Result.YES;
+    }
+});

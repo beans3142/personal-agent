@@ -35,6 +35,8 @@ TUNNEL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
 def is_logged_in(context, site: str) -> bool:
+    if site == 'naver' and any('nid.naver.com/nidlogin' in page.url for page in getattr(context, 'pages', [])):
+        return False
     return any(cookie["name"] == SESSION_MARKERS[site] for cookie in context.cookies())
 
 
@@ -79,7 +81,7 @@ def main() -> None:
             chromium = playwright.chromium.executable_path
             processes.append(subprocess.Popen(
                 [chromium, f"--user-data-dir={data / 'portal-profile' / site.name}", f"--remote-debugging-port={CDP_PORT}",
-                 "--remote-debugging-address=127.0.0.1", "--no-first-run", "--window-size=1100,900", "--window-position=0,0",
+                "--remote-debugging-address=127.0.0.1", "--no-first-run", "--no-sandbox", "--window-size=1100,900", "--window-position=0,0",
                  "--lang=ko-KR", args.url or site.login_url],
                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             ))

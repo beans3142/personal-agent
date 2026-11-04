@@ -17,6 +17,13 @@ def test_logged_in_when_marker_cookie_exists():
     assert is_logged_in(Context(["NID_AUT", "other"]), "naver") is True
 
 
+def test_stale_cookie_does_not_close_naver_login_portal():
+    from types import SimpleNamespace
+    context = Context(['NID_AUT'])
+    context.pages = [SimpleNamespace(url='https://nid.naver.com/nidlogin.login')]
+    assert is_logged_in(context, 'naver') is False
+
+
 def test_not_logged_in_without_marker_cookie():
     assert is_logged_in(Context(["NID_JKL"]), "naver") is False
 
