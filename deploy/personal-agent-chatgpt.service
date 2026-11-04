@@ -1,0 +1,20 @@
+[Unit]
+Description=Daevis ChatGPT desktop Chat image backend
+After=network-online.target personal-agent-chatgpt-display.service
+Requires=personal-agent-chatgpt-display.service
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/personal-agent
+Environment=DISPLAY=:4
+Environment=BROWSER=/home/ubuntu/personal-agent/deploy/open-desktop-auth.sh
+ExecStart=/usr/bin/dbus-run-session -- /usr/bin/chatgpt --remote-debugging-port=9350 --remote-debugging-address=127.0.0.1 --disable-gpu
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+MemoryMax=1800M
+
+[Install]
+WantedBy=multi-user.target

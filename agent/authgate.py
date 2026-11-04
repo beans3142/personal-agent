@@ -1,11 +1,13 @@
 """Keeps site logins alive. Passwords come from the environment and never reach the model.
 
-A captcha is never solved or bypassed: the login stops and reports it.
+Optional owner-approved image assistance is bounded; unsupported verification
+and phone/OTP steps remain blocked or handed to the owner.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,8 +58,8 @@ SITES = {
         password_selector="#pw",
         submit_selector="button[id^='loginBtn']:visible",
         logged_in_selector="cookie:NID_AUT",
-        captcha_selector="#captcha, #chptcha",
-        second_factor_selector="#push_title, #otp",
+        captcha_selector="#captcha:visible, #chptcha:visible, iframe[id^='ncaptcha-iframe-']:visible",
+        second_factor_selector="#push_title:visible, #otp:visible",
         remember_selector="#loginStay",
     ),
     "kakao": Site(
@@ -100,7 +102,8 @@ class EnvCredentials:
 class AuthGate:
     def __init__(self, credentials, browser, sites: dict[str, Site] = SITES,
                  wait=lambda: time.sleep(POLL_SECONDS), attempts: int = LOGIN_ATTEMPTS,
-                 second_factor_attempts: int = SECOND_FACTOR_ATTEMPTS, notify=lambda text: None):
+                 second_factor_attempts: int = SECOND_FACTOR_ATTEMPTS, notify=lambda text: None,
+                 challenge_handler=None):
         self.second_factor_attempts = second_factor_attempts
         self.notify = notify
         self.credentials = credentials
@@ -108,6 +111,7 @@ class AuthGate:
         self.sites = sites
         self.wait = wait
         self.attempts = attempts
+        self.challenge_handler = challenge_handler
 
     def ensure(self, name: str) -> str:
         """Returns "ok" when the site session is usable. Raises AuthBlocked with a status otherwise."""
@@ -161,12 +165,21 @@ class AuthGate:
 
     def _await_result(self, site: Site, page) -> str:
         told = False
+        challenge_attempted = False
         remaining = self.attempts
         while remaining > 0:
             if page.has(site.logged_in_selector):
+                page.goto(site.check_url)
+                if not page.has(site.logged_in_selector):
+                    raise AuthBlocked('session_not_verified')
                 self.browser.save(site)
                 return "ok"
             if page.has(site.captcha_selector):
+                if self.challenge_handler is not None and not challenge_attempted:
+                    challenge_attempted = True
+                    if self.challenge_handler(site, page):
+                        page.poll()
+                        continue
                 raise AuthBlocked("captcha")
             if page.has(site.second_factor_selector) and not told:
                 told = True
@@ -243,6 +256,53 @@ class PlaywrightPage:
 
     def poll(self) -> None:
         self.page.wait_for_timeout(500)
+
+    def login_challenge(self, site):
+        """Naver-only crop. Never capture the enclosing credential form."""
+        import hashlib
+        from urllib.parse import urlsplit
+        if site != 'naver' or urlsplit(self.page.url).hostname != 'nid.naver.com':
+            raise AuthBlocked('unsupported_verification')
+        iframe = self.page.locator('iframe[id^="ncaptcha-iframe-"]:visible')
+        if iframe.count() == 1:
+            source = iframe.get_attribute('src') or ''
+            host = urlsplit(source).hostname or ''
+            if not host.endswith('.naver.com'):
+                raise AuthBlocked('unsupported_verification_origin')
+            frame = iframe.element_handle().content_frame()
+            if frame is None or frame.locator('input[type=password]').count():
+                raise AuthBlocked('unsafe_verification_crop')
+            target = frame.get_by_role('textbox')
+            submit = frame.get_by_role('button', name=re.compile(r'^(Confirm|확인)$', re.I))
+            if target.count() != 1 or submit.count() != 1:
+                raise AuthBlocked('unsupported_verification_controls')
+            question = frame.locator('body').inner_text()[:1000]
+            image = iframe.screenshot()
+            marker = iframe
+        else:
+            marker = self.page.locator('#captchaimg:visible')
+            if marker.count() != 1:
+                raise AuthBlocked('unsupported_verification')
+            source = marker.get_attribute('src') or ''
+            question_node = self.page.locator('#captcha_info:visible')
+            question = question_node.inner_text()[:1000] if question_node.count() else 'Read the verification characters.'
+            image = marker.screenshot()
+            target = self.page.locator('#captcha:visible, #chptcha:visible')
+            submit = self.page.locator("button[id^='loginBtn']:visible")
+            if target.count() != 1 or submit.count() != 1:
+                raise AuthBlocked('unsupported_verification_controls')
+        key = hashlib.sha256(source.encode()).hexdigest()
+        self._login_challenge = (key, marker, source, target, submit)
+        return {'image': image, 'question': question, 'key': key}
+
+    def submit_login_challenge(self, key, answer):
+        saved, marker, source, target, submit = self._login_challenge
+        if saved != key or marker.get_attribute('src') != source:
+            return False
+        target.fill(answer)
+        submit.click()
+        marker.wait_for(state='hidden', timeout=10000)
+        return True
 
     def compose_mail(self, to: str, subject: str, body: str) -> None:
         if "nid.naver.com" in self.page.url:

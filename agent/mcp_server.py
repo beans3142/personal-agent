@@ -178,7 +178,15 @@ def build_runtime(data: Path, env) -> ToolBridge:
     data.mkdir(parents=True, exist_ok=True)
     memory = Memory(data / "agent.db")
     browser = PlaywrightBrowser(data / "sessions")
-    gate = AuthGate(EnvCredentials(env), browser)
+    challenge_handler = None
+    if env.get('DAEVIS_LOGIN_IMAGE_ASSIST') == 'desktop':
+        from .desktop_login import DesktopChat, DesktopChallenge
+        challenge_handler = DesktopChallenge(DesktopChat().ask, data, approve=approve)
+    notify = lambda *_: None
+    if mode == 'discord':
+        from .qr_login import discord_sender
+        notify = discord_sender(env['DISCORD_BOT_TOKEN'], env['OWNER_ID'])
+    gate = AuthGate(EnvCredentials(env), browser, challenge_handler=challenge_handler, notify=notify)
     android = AndroidControl(UiaDevice(env.get("ANDROID_SERIAL")), env=env, outbox=data / "outbox", approve=approve)
     tools = build_tools(memory, data / "schedule.json", env) + build_android_tools(android)
     tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)

@@ -15,6 +15,31 @@ def test_stale_naver_cookie_on_login_redirect_is_not_authenticated():
     page.url = 'https://mail.naver.com/v2/folders/0'
     assert wrapped.has('cookie:NID_AUT')
 
+
+def test_login_verification_handler_runs_once_then_checks_actual_session(vault):
+    vault.set('demo', 'u', 'p')
+    page = FakePage(after_submit=[['#captcha']])
+    auth, browser = gate(vault, page)
+    calls = []
+    def solve(site, active):
+        calls.append(site.name)
+        active.present = {'#me'}
+        return True
+    auth.challenge_handler = solve
+    assert auth.ensure('demo') == 'ok'
+    assert calls == ['demo'] and browser.saved == ['demo']
+
+
+def test_unchanged_verification_is_not_solved_repeatedly(vault):
+    vault.set('demo', 'u', 'p')
+    page = FakePage(after_submit=[['#captcha']])
+    auth, browser = gate(vault, page)
+    calls = []
+    auth.challenge_handler = lambda site, page: calls.append(site.name) or True
+    with pytest.raises(AuthBlocked, match='captcha'):
+        auth.ensure('demo')
+    assert calls == ['demo'] and browser.saved == []
+
 SITE = Site(
     name="demo",
     login_url="https://demo/login",
