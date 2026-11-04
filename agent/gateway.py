@@ -22,6 +22,7 @@ from .loop import REPEATED_ERROR_REPLY, STEP_LIMIT_REPLY, Tool, TurnMetrics, run
 from .memory import Memory
 from .kakao_watch import KakaoWatcher, KakaoRecipientUnavailable
 from .naver_mail import build_mail_tool
+from .web_llm import GeminiWeb, QuickLane
 from .tools import build_tools
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -177,6 +178,11 @@ class Gateway(discord.Client):
                     safe_kakao_reply = reply
                     history.extend([{"role": "user", "content": text}, {"role": "assistant", "content": reply}])
                     return reply + "\n\n" + metrics.footer(time.monotonic() - started) + " · 방식 프로그램"
+            quick = getattr(self, "quick_lane", None)
+            answer = quick.try_answer(text) if quick else None
+            if answer:
+                history.extend([{"role": "user", "content": text}, {"role": "assistant", "content": answer}])
+                return answer + "\n\n" + metrics.footer(time.monotonic() - started) + " · 방식 웹 Gemini"
             def traced(tool):
                 def run(args):
                     nonlocal kakao_used
@@ -348,6 +354,7 @@ def main():
     tools = build_tools(memory, store) + build_android_tools(android) + [build_auth_tool(auth), build_discord_user_tool(auth, browser, os.environ["DISCORD_BOT_TOKEN"]), build_mail_tool(auth, browser, os.environ)]
     gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, tools, store, auth, android)
     auth.notify = gateway.notify_owner
+    gateway.quick_lane = QuickLane(GeminiWeb(), enabled=os.environ.get("QUICK_LANE", "on") != "off")
     gateway.run(os.environ["DISCORD_BOT_TOKEN"], log_handler=None)
 
 

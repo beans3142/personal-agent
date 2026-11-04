@@ -1,0 +1,83 @@
+"""Answers simple questions through Gemini on the web so the main model is called only when needed.
+
+The web answer is accepted only in an exact "DIRECT: ..." form. Anything else goes to the main model.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+
+GEMINI_URL = "https://gemini.google.com/app"
+ANSWER_TIMEOUT_SECONDS = 60
+MAX_QUICK_CHARS = 300
+# Requests that obviously need tools skip the web lane without spending a call.
+TOOL_HINTS = re.compile(
+    r"https?://|카톡|카카오|메일|예약|알림|알람|일정|기억|검색|지도|경로|길찾|날씨|뉴스|오늘|내일|지금|보내|열어|켜|꺼|로그인|주문|결제|앱|안드로이드|채널|디스코드",
+    re.I,
+)
+log = logging.getLogger(__name__)
+
+
+def route_prompt(request: str) -> str:
+    return (
+        "너는 분류기다. 아래 요청을 처리하는 데 검색, 메일, 지도, 카톡, 예약, 기억, 계정 로그인, 앱 조작, "
+        "최신 정보, 현재 날짜나 시각, 사용자 개인 정보 중 하나라도 필요하면 정확히 AGENT 한 단어만 출력해. "
+        "필요 없고 일반 지식으로 짧고 확실하게 답할 수 있으면 'DIRECT: ' 뒤에 쉬운 한국어로 답만 출력해. "
+        "다른 말은 쓰지 마.\n\n요청: " + request
+    )
+
+
+def parse_route(text: str) -> str | None:
+    match = re.match(r"\s*DIRECT:\s*(.+)", text or "", re.S)
+    answer = match.group(1).strip() if match else ""
+    return answer or None
+
+
+class GeminiWeb:
+    """Asks Gemini on the web in a fresh browser context, without signing in."""
+
+    def ask(self, prompt: str) -> str:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_context(locale="ko-KR", timezone_id="Asia/Seoul").new_page()
+                page.goto(GEMINI_URL, wait_until="domcontentloaded", timeout=40000)
+                box = page.locator("rich-textarea [contenteditable=true]").first
+                box.wait_for(timeout=20000)
+                box.click()
+                page.keyboard.insert_text(prompt)
+                page.keyboard.press("Enter")
+                return self._wait_answer(page)
+            finally:
+                browser.close()
+
+    def _wait_answer(self, page) -> str:
+        started, last, stable = time.monotonic(), "", 0
+        while time.monotonic() - started < ANSWER_TIMEOUT_SECONDS:
+            page.wait_for_timeout(1000)
+            answers = page.locator("model-response message-content").all_inner_texts()
+            text = answers[-1].strip() if answers else ""
+            stable = stable + 1 if text and text == last else 0
+            last = text
+            if stable >= 2:
+                return text
+        raise TimeoutError("Gemini web did not finish answering")
+
+
+class QuickLane:
+    def __init__(self, web, enabled: bool = True):
+        self.web = web
+        self.enabled = enabled
+
+    def try_answer(self, request: str) -> str | None:
+        if not self.enabled or len(request) > MAX_QUICK_CHARS or TOOL_HINTS.search(request):
+            return None
+        try:
+            return parse_route(self.web.ask(route_prompt(request)))
+        except Exception as error:
+            log.warning("quick lane failed, using main model: %s", type(error).__name__)
+            return None
