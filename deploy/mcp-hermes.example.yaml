@@ -1,0 +1,21 @@
+# Merge into the owner-only Hermes profile. Do not put credentials here.
+# Stop personal-agent.service first; never share Android with another runtime.
+# Private outputs go to this client. Configure its owner filter and Kakao
+# status-only Discord responses before enabling any messaging gateway.
+mcp_servers:
+  daevis:
+    command: bash
+    args: [/home/ubuntu/personal-agent/deploy/run-mcp.sh]
+    timeout: 180
+    connect_timeout: 30
+    supports_parallel_tool_calls: false
+    env:
+      # Start with read-only tools. Writes are opt-in and require owner approval.
+      DAEVIS_MCP_ALLOW_TOOLS: memory_search,route_search,map_search,android_screen
+      DAEVIS_MCP_APPROVAL: deny
+# To enable a write tool: explicitly add its name to the allowlist and set
+# DAEVIS_MCP_APPROVAL=discord. It asks OWNER_ID by private bot DM; only that
+# owner's fresh exact approval is accepted. API errors/timeouts deny execution.
+# Android consequential actions retain their native fresh-screen approval too.
+# No scheduler/background jobs/model calls are started by this MCP process.
+# StdIO has no remote authentication: never expose it through a public proxy.
