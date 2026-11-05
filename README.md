@@ -10,6 +10,8 @@
 
 Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 AI Agent다. 대화와 판단은 [Hermes Agent](https://github.com/NousResearch/hermes-agent)가 맡고, 카톡·네이버·길찾기 같은 한국 서비스 도구는 이 저장소의 MCP 서버가 제공한다. 모델은 ChatGPT 구독 로그인(Codex OAuth)으로 부르기 때문에 API 요금이 따로 나가지 않는다.
 
+![대비스 아키텍처](docs/architecture.svg)
+
 ## 할 수 있는 일
 
 | | 기능 | 이렇게 말한다 | 처리 방식 | 쓰는 도구 |
