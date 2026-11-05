@@ -284,6 +284,11 @@ class Gateway(discord.Client):
         self.last_activity = datetime.now(timezone.utc)
         if re.fullmatch(r"(?:승인|거절) [0-9a-f]{16}",text):
             return  # Consumed by the owner-only MCP approval broker, never a new model turn.
+        if text == '네이버 로그인 재시도':
+            from .login_automation import LoginImagePermission
+            async with self.turn_lock:
+                LoginImagePermission(DATA, None, lambda: False).resume()
+            text = 'auth_ensure 도구로 네이버 로그인 상태를 확인해 줘. 이미 로그인되어 있으면 세션만 확인해 줘.'
         watcher = getattr(self, "kakao_watch", None)
         if watcher and re.search(r"자동\s*응답\s*(중지|중단|종료|꺼)", text):
             watcher.stop()

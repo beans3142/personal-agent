@@ -80,6 +80,19 @@ def test_other_users_and_unmentioned_guild_messages_do_not_invoke_model():
         assert msg.channel.send.await_count == 0
 
 
+def test_only_owner_retry_command_can_rearm_login_and_run_the_check(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr('agent.gateway.DATA', tmp_path)
+    state = tmp_path / 'login-automation-state.json'
+    state.write_text('{"naver":{"paused":true,"reason":"captcha"}}')
+    bot, _, calls = gateway()
+    asyncio.run(Gateway.on_message(bot, message(author=2, content='<@9> 네이버 로그인 재시도')))
+    assert json.loads(state.read_text())['naver']['paused'] and not calls
+    asyncio.run(Gateway.on_message(bot, message(content='<@9> 네이버 로그인 재시도')))
+    assert not json.loads(state.read_text())['naver']['paused']
+    assert len(calls) == 1 and 'auth_ensure' in calls[0][1]
+
+
 def test_dm_still_works_without_mention_and_empty_mention_is_ignored():
     bot, dm, calls = gateway()
     msg = message(content="hello", guild=False)

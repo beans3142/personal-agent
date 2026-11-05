@@ -91,6 +91,8 @@ class ToolBridge:
             if name != "android_screen" and len(text) > 8000:
                 text = text[:8000] + "\n[truncated]"
             failed = text.startswith(("error:", "denied:", "blocked:"))
+            if name == 'auth_ensure':
+                failed = failed or json.loads(text).get('status') != 'ok'
             if name in DISPATCH_TOOLS:
                 payload = json.loads(text)
                 failed = failed or payload.get("status") in {"denied", "error", "blocked", "uncertain", "failed"}
@@ -160,11 +162,13 @@ def build_runtime(data: Path, env) -> ToolBridge:
     from .kakao_self import build_kakao_self_tools
     from .kakao_watch import build_kakao_send_tools
     from .recipes import RecipeExecutor, build_recipe_tools
+    from .login_automation import LoginImagePermission
 
     mode = env.get("DAEVIS_MCP_APPROVAL", "deny")
     if mode not in {"deny", "discord"}:
         raise ValueError("DAEVIS_MCP_APPROVAL must be deny or discord")
     request_approval = DiscordApproval(env.get("DISCORD_BOT_TOKEN", ""), env.get("OWNER_ID", "")) if mode == "discord" else lambda *_: False
+    login_permission = LoginImagePermission(data, env.get('DAEVIS_MCP_REQUEST_ID'), lambda: owner_request_active(env))
     def approve(name, args):
         # Only the owner-only gateway's local worker gets this short-lived lease.
         # AndroidControl's consequential callback includes `button`, and must
@@ -174,6 +178,8 @@ def build_runtime(data: Path, env) -> ToolBridge:
                 return False
             if name in ROUTINE_ANDROID and "button" not in args:
                 return True
+            if name == 'auth_ensure' and args == {'site': 'naver'} and login_permission.enabled('naver'):
+                return True
         accepted = request_approval(name, args)
         return accepted and (not env.get("DAEVIS_MCP_OWNER_REQUEST") or owner_request_active(env))
     data.mkdir(parents=True, exist_ok=True)
@@ -182,12 +188,16 @@ def build_runtime(data: Path, env) -> ToolBridge:
     challenge_handler = None
     if env.get('DAEVIS_LOGIN_IMAGE_ASSIST') == 'desktop':
         from .desktop_login import DesktopChat, DesktopChallenge
-        challenge_handler = DesktopChallenge(DesktopChat().ask, data, approve=approve)
+        image_approval = login_permission if (data / 'login-policy.json').exists() else approve
+        challenge_handler = DesktopChallenge(DesktopChat().ask, data, approve=image_approval)
     notify = lambda *_: None
     if mode == 'discord':
         from .qr_login import discord_sender
         notify = discord_sender(env['DISCORD_BOT_TOKEN'], env['OWNER_ID'])
-    gate = AuthGate(EnvCredentials(env), browser, challenge_handler=challenge_handler, notify=notify)
+    policy_present = (data / 'login-policy.json').exists()
+    gate = AuthGate(EnvCredentials(env), browser, challenge_handler=challenge_handler, notify=notify,
+                   can_login=lambda site: site != 'naver' or not policy_present or login_permission.can_login(site),
+                   record_outcome=login_permission.record_outcome if policy_present else lambda *_: None)
     android = AndroidControl(UiaDevice(env.get("ANDROID_SERIAL")), env=env, outbox=data / "outbox", approve=approve)
     tools = build_tools(memory, data / "schedule.json", env) + build_android_tools(android)
     tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)

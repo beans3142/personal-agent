@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,31 @@ POLL_SECONDS = 5
 
 class AuthBlocked(Exception):
     pass
+
+
+def verification_image(marker):
+    """Copy the already loaded image at native resolution, without a new GET.
+
+    Fetching a captcha URL again can generate a different problem. Canvas copies
+    the existing pixels only; cross-origin/unsupported elements use a screenshot.
+    """
+    if hasattr(marker, 'evaluate'):
+        try:
+            encoded = marker.evaluate('''img => {
+                if (!(img instanceof HTMLImageElement) || !img.complete || !img.naturalWidth ||
+                    img.naturalWidth * img.naturalHeight > 4000000) return null;
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                return canvas.toDataURL('image/png');
+            }''')
+            if isinstance(encoded, str) and encoded.startswith('data:image/png;base64,') and len(encoded) <= 2800000:
+                raw = base64.b64decode(encoded.split(',', 1)[1], validate=True)
+                if raw.startswith(b'\x89PNG\r\n\x1a\n') and len(raw) <= 2 * 1024 * 1024:
+                    return raw
+        except Exception:
+            pass
+    return marker.screenshot()
 
 
 @dataclass(frozen=True)
@@ -57,7 +83,7 @@ SITES = {
         user_selector="#id",
         password_selector="#pw",
         submit_selector="button[id^='loginBtn']:visible",
-        logged_in_selector="cookie:NID_AUT",
+        logged_in_selector="naver:mailbox",
         captcha_selector="#captcha:visible, #chptcha:visible, iframe[id^='ncaptcha-iframe-']:visible",
         second_factor_selector="#push_title:visible, #otp:visible",
         remember_selector="#loginStay",
@@ -103,7 +129,7 @@ class AuthGate:
     def __init__(self, credentials, browser, sites: dict[str, Site] = SITES,
                  wait=lambda: time.sleep(POLL_SECONDS), attempts: int = LOGIN_ATTEMPTS,
                  second_factor_attempts: int = SECOND_FACTOR_ATTEMPTS, notify=lambda text: None,
-                 challenge_handler=None):
+                 challenge_handler=None, can_login=lambda site: True, record_outcome=lambda site, status: None):
         self.second_factor_attempts = second_factor_attempts
         self.notify = notify
         self.credentials = credentials
@@ -112,6 +138,8 @@ class AuthGate:
         self.wait = wait
         self.attempts = attempts
         self.challenge_handler = challenge_handler
+        self.can_login = can_login
+        self.record_outcome = record_outcome
 
     def ensure(self, name: str) -> str:
         """Returns "ok" when the site session is usable. Raises AuthBlocked with a status otherwise."""
@@ -121,9 +149,13 @@ class AuthGate:
         page = self.browser.open(site)
         try:
             page.goto(site.check_url)
+            self._check_known_block(site, page)
             if page.has(site.logged_in_selector):
                 self.browser.save(site)
+                self.record_outcome(site.name, 'ok')
                 return "ok"
+            if not self.can_login(site.name):
+                raise AuthBlocked('login_paused')
             credentials = self.credentials.get(name)
             if credentials is None:
                 raise AuthBlocked("no_credentials")
@@ -135,7 +167,16 @@ class AuthGate:
             if site.remember_selector:
                 page.check(site.remember_selector)
             page.click(site.submit_selector)
-            return self._await_result(site, page)
+            status = self._await_result(site, page)
+            self.record_outcome(site.name, status)
+            return status
+        except AuthBlocked as error:
+            if str(error) != 'login_paused':
+                self.record_outcome(site.name, str(error))
+            raise
+        except Exception:
+            self.record_outcome(site.name, 'runtime_error')
+            raise
         finally:
             self.browser.close()
 
@@ -166,8 +207,14 @@ class AuthGate:
     def _await_result(self, site: Site, page) -> str:
         told = False
         challenge_attempted = False
+        resume_naver_login = False
+        mail_check_attempted = False
         remaining = self.attempts
         while remaining > 0:
+            self._check_known_block(site, page)
+            if site.name == 'naver' and not mail_check_attempted and page.has('cookie:NID_AUT'):
+                mail_check_attempted = True
+                page.goto(site.check_url)
             if page.has(site.logged_in_selector):
                 page.goto(site.check_url)
                 if not page.has(site.logged_in_selector):
@@ -178,9 +225,25 @@ class AuthGate:
                 if self.challenge_handler is not None and not challenge_attempted:
                     challenge_attempted = True
                     if self.challenge_handler(site, page):
+                        resume_naver_login = site.name == 'naver'
                         page.poll()
                         continue
                 raise AuthBlocked("captcha")
+            if resume_naver_login and page.has(site.user_selector + ':visible') and page.has(site.password_selector + ':visible'):
+                # Naver's separate verification page returns to an empty sign-in
+                # form. Resume once; waiting alone never authenticates it.
+                resume_naver_login = False
+                credentials = self.credentials.get(site.name)
+                if credentials is None:
+                    raise AuthBlocked('no_credentials')
+                page.fill(site.user_selector, credentials[0])
+                page.fill(site.password_selector, credentials[1])
+                if site.remember_selector:
+                    page.check(site.remember_selector)
+                page.click(site.submit_selector)
+                mail_check_attempted = False
+                page.poll()
+                continue
             if page.has(site.second_factor_selector) and not told:
                 told = True
                 remaining = self.second_factor_attempts
@@ -189,6 +252,13 @@ class AuthGate:
             self.wait()
             page.poll()
         raise AuthBlocked("second_factor_timeout" if told else "login_failed")
+
+    def _check_known_block(self, site, page):
+        detect = getattr(page, 'auth_block_reason', None)
+        reason = detect(site.name) if detect else None
+        if reason:
+            self.notify(f'{site.name}: {reason} — 계정 보호조치 해제에 소유자 본인 확인이 필요합니다. 자동 재시도하지 않습니다.')
+            raise AuthBlocked(reason)
 
 
 class PlaywrightBrowser:
@@ -208,14 +278,23 @@ class PlaywrightBrowser:
 
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.playwright = sync_playwright().start()
-        self.instance = self.playwright.chromium.launch(headless=True)
         state = self._state(site)
-        self.context = self.instance.new_context(
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-            storage_state=str(state) if state.exists() else None,
-        )
-        return PlaywrightPage(self.context.new_page())
+        if site.name == 'naver':
+            # Preserve the complete site profile, including browser-bound
+            # storage not covered by a cookies/localStorage JSON snapshot.
+            profile = self.state_dir / 'naver-browser'
+            profile.mkdir(mode=0o700, exist_ok=True)
+            profile.chmod(0o700)
+            self.context = self.playwright.chromium.launch_persistent_context(
+                str(profile), headless=True,
+                locale='ko-KR', timezone_id='Asia/Seoul')
+            self.instance = self.context
+        else:
+            self.instance = self.playwright.chromium.launch(headless=True)
+            self.context = self.instance.new_context(
+                locale="ko-KR", timezone_id="Asia/Seoul",
+                storage_state=str(state) if state.exists() else None)
+        return PlaywrightPage(self.context.pages[0] if self.context.pages else self.context.new_page())
 
     def save(self, site: Site) -> None:
         self.context.storage_state(path=str(self._state(site)))
@@ -243,6 +322,20 @@ class PlaywrightPage:
         self.page.locator(selector).first.check(force=True, timeout=5000)
 
     def has(self, selector: str) -> bool:
+        if selector == 'naver:mailbox':
+            from urllib.parse import urlsplit
+            url = urlsplit(self.page.url)
+            if url.hostname != 'mail.naver.com' or not url.path.startswith('/v2/'):
+                return False
+            cookies = {c['name'] for c in self.page.context.cookies()}
+            if not {'NID_AUT', 'NID_SES'} <= cookies:
+                return False
+            marker = self.page.get_by_text(re.compile(r'^메일\s*쓰기$'))
+            try:
+                marker.first.wait_for(state='visible', timeout=10000)
+            except Exception:
+                return False
+            return urlsplit(self.page.url).hostname == 'mail.naver.com' and bool(marker.count())
         if selector.startswith("cookie:"):
             name = selector.split(":", 1)[1]
             if name == 'NID_AUT' and 'nid.naver.com/nidlogin' in self.page.url:
@@ -256,6 +349,13 @@ class PlaywrightPage:
 
     def poll(self) -> None:
         self.page.wait_for_timeout(500)
+
+    def auth_block_reason(self, site):
+        from urllib.parse import urlsplit
+        url = urlsplit(self.page.url)
+        if site == 'naver' and url.hostname == 'nid.naver.com' and url.path == '/user2/help/idSafetyRelease':
+            return 'account_protected'
+        return None
 
     def login_challenge(self, site):
         """Naver-only crop. Never capture the enclosing credential form."""
@@ -288,7 +388,7 @@ class PlaywrightPage:
             source = marker.get_attribute('src') or ''
             question_node = self.page.locator('#captcha_info:visible')
             question = question_node.inner_text()[:1000] if question_node.count() else 'Read the verification characters.'
-            image = marker.screenshot()
+            image = verification_image(marker)
             target = self.page.locator('#captcha:visible, #chptcha:visible')
             submit = self.page.locator("button[id^='loginBtn']:visible")
             if submit.count() == 0:

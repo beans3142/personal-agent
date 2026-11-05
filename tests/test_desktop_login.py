@@ -18,6 +18,8 @@ def test_desktop_worker_does_not_inherit_login_credentials(monkeypatch):
 
 def test_answer_is_structured_short_text_only():
     assert parse_answer('{"answer":"17"}') == '17'
+    assert parse_answer('{"answer":"0.5"}') == '0.5'
+    assert parse_answer('{"answer":"상품(대)"}') == '상품(대)'
     for raw in ['17','{"answer":null}','{"answer":"x","command":"click"}','{"answer":"a\\nb"}']:
         with pytest.raises(ValueError): parse_answer(raw)
 

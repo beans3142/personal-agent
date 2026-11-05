@@ -1,0 +1,6 @@
+{
+  "naver": {
+    "enabled": false,
+    "solver": "desktop"
+  }
+}

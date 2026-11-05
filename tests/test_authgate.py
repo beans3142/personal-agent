@@ -40,6 +40,115 @@ def test_unchanged_verification_is_not_solved_repeatedly(vault):
         auth.ensure('demo')
     assert calls == ['demo'] and browser.saved == []
 
+
+def test_naver_verification_returning_to_login_resumes_credentials_once(vault):
+    from dataclasses import replace
+    site = replace(SITE, name='naver')
+    vault.set('naver', 'u', 'p')
+    page = FakePage(after_submit=[['#captcha'], ['#me']])
+    page.poll = lambda: None  # Only an actual second submit can reach #me.
+    browser = FakeBrowser(page)
+    def solved(site, page):
+        page.present = {'#id:visible', '#pw:visible'}
+        return True
+    auth = AuthGate(vault, browser, {'naver': site}, wait=lambda: None, attempts=3, challenge_handler=solved)
+    assert auth.ensure('naver') == 'ok'
+    assert browser.saved == ['naver']
+
+
+def test_naver_does_not_resubmit_credentials_without_completed_verification(vault):
+    from dataclasses import replace
+    site = replace(SITE, name='naver')
+    vault.set('naver', 'u', 'p')
+    page = FakePage(after_submit=[['#id:visible', '#pw:visible']])
+    browser = FakeBrowser(page)
+    auth = AuthGate(vault, browser, {'naver': site}, wait=lambda: None, attempts=2)
+    with pytest.raises(AuthBlocked, match='login_failed'):
+        auth.ensure('naver')
+
+
+def test_account_protection_stops_before_more_credentials_or_captcha(vault):
+    vault.set('demo', 'u', 'p')
+    page = FakePage()
+    page.auth_block_reason = lambda site: 'account_protected'
+    auth, browser = gate(vault, page)
+    notices = []
+    auth.notify = notices.append
+    with pytest.raises(AuthBlocked, match='account_protected'):
+        auth.ensure('demo')
+    assert not page.filled and not browser.saved and len(notices) == 1
+
+
+def test_paused_login_does_not_submit_but_a_valid_session_remains_usable(vault):
+    vault.set('demo', 'u', 'p')
+    page = FakePage()
+    auth, browser = gate(vault, page)
+    auth.can_login = lambda site: False
+    with pytest.raises(AuthBlocked, match='login_paused'):
+        auth.ensure('demo')
+    assert not page.filled and not browser.saved
+    page.present = {'#me'}
+    assert auth.ensure('demo') == 'ok'
+
+
+def test_unexpected_submit_error_also_pauses_instead_of_retrying(vault):
+    vault.set('demo', 'u', 'p')
+    page = FakePage()
+    auth, browser = gate(vault, page)
+    outcomes = []
+    auth.record_outcome = lambda site, reason: outcomes.append((site, reason))
+    page.click = lambda _: (_ for _ in ()).throw(RuntimeError('uncertain submit'))
+    with pytest.raises(RuntimeError):
+        auth.ensure('demo')
+    assert outcomes == [('demo', 'runtime_error')] and not browser.saved
+
+
+def test_naver_protection_page_is_detected_by_exact_official_host_and_path():
+    from types import SimpleNamespace
+    from agent.authgate import PlaywrightPage
+    page = SimpleNamespace(url='https://nid.naver.com/user2/help/idSafetyRelease?private=not-logged')
+    assert PlaywrightPage(page).auth_block_reason('naver') == 'account_protected'
+    page.url = 'https://attacker.example/user2/help/idSafetyRelease'
+    assert PlaywrightPage(page).auth_block_reason('naver') is None
+
+
+def test_real_naver_mailbox_accepts_compose_label_with_a_space():
+    from types import SimpleNamespace
+    from agent.authgate import PlaywrightPage
+    seen = []
+    class Marker:
+        first = property(lambda self: self)
+        def wait_for(self, **kwargs): pass
+        def count(self): return 1
+    def by_text(pattern):
+        seen.append(pattern)
+        assert pattern.fullmatch('메일 쓰기') and pattern.fullmatch('메일쓰기')
+        return Marker()
+    page = SimpleNamespace(url='https://mail.naver.com/v2/folders/0', get_by_text=by_text,
+        context=SimpleNamespace(cookies=lambda: [{'name': 'NID_AUT'}, {'name': 'NID_SES'}]))
+    assert PlaywrightPage(page).has('naver:mailbox')
+    page.url = 'https://nid.naver.com/nidlogin.login'
+    assert not PlaywrightPage(page).has('naver:mailbox')
+    assert len(seen) == 1
+
+
+def test_naver_post_verification_credentials_are_resubmitted_at_most_once(vault):
+    from dataclasses import replace
+    site = replace(SITE, name='naver')
+    vault.set('naver', 'u', 'p')
+    page = FakePage(after_submit=[['#captcha'], ['#id:visible', '#pw:visible']])
+    page.poll = lambda: None
+    clicks = []
+    click = page.click
+    page.click = lambda selector: (clicks.append(selector), click(selector))[-1]
+    def solved(site, page):
+        page.present = {'#id:visible', '#pw:visible'}
+        return True
+    auth = AuthGate(vault, FakeBrowser(page), {'naver': site}, wait=lambda: None, attempts=3, challenge_handler=solved)
+    with pytest.raises(AuthBlocked, match='login_failed'):
+        auth.ensure('naver')
+    assert clicks == ['#go', '#go']
+
 SITE = Site(
     name="demo",
     login_url="https://demo/login",
@@ -114,6 +223,19 @@ def test_env_credentials_read_both_values():
     assert creds.get("naver") == ("u", "p")
     assert creds.get("kakao") is None
     assert creds.get("other") is None
+
+
+def test_verification_capture_copies_loaded_native_image_without_refetch():
+    import base64
+    from types import SimpleNamespace
+    from agent.authgate import verification_image
+    png = b'\x89PNG\r\n\x1a\nloaded-native-pixels'
+    marker = SimpleNamespace(evaluate=lambda _: 'data:image/png;base64,'+base64.b64encode(png).decode(),
+        screenshot=lambda: pytest.fail('native image should preserve original pixels'))
+    assert verification_image(marker) == png
+    marker.evaluate = lambda _: None
+    marker.screenshot = lambda: b'fallback'
+    assert verification_image(marker) == b'fallback'
 
 
 def test_valid_session_does_not_use_password(vault):

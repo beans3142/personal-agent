@@ -49,6 +49,13 @@ def test_legacy_approval_flag_remains_authoritative():
     assert ToolBridge([sample(approval=True)], {"memory_search"}).call("memory_search", {"text": "hello"}).isError
 
 
+def test_incomplete_login_is_a_tool_error_not_a_success_receipt():
+    tool = sample('auth_ensure')
+    tool.run = lambda args: '{"status":"captcha"}'
+    bridge = ToolBridge([tool], {'auth_ensure'}, approve=lambda *_: True)
+    assert bridge.call('auth_ensure', {'text': 'naver'}).isError
+
+
 def test_write_tools_are_never_advertised_as_safe_to_retry():
     tool = ToolBridge([sample("mail_send")], {"mail_send"}).list_tools()[0]
     assert tool.annotations.readOnlyHint is False
@@ -73,6 +80,38 @@ def test_runtime_passes_trusted_controller_request_id_to_self_tool(tmp_path, mon
                                      'DAEVIS_MCP_ALLOW_TOOLS': 'kakao_self_send'})
     assert seen == ['trusted-request']
     assert 'kakao_self_send' in runtime.allowed
+
+
+def test_runtime_delegated_login_runs_image_gate_without_interactive_approval(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from agent.mcp_server import build_runtime
+    (tmp_path / 'login-policy.json').write_text('{"naver":{"enabled":true,"solver":"desktop"}}')
+    events = []
+    class Page:
+        def login_challenge(self, site):
+            events.append('crop')
+            return {'key': 'current', 'image': b'isolated-image', 'question': 'quantity?'}
+        def submit_login_challenge(self, key, answer):
+            events.append(('submit', key, answer))
+            return True
+    def fake_chat():
+        return SimpleNamespace(ask=lambda image, question: events.append('desktop_chat') or '{"answer":"5"}')
+    def fake_gate(*args, **kwargs):
+        def ensure(site):
+            assert kwargs['challenge_handler'](SimpleNamespace(name=site), Page())
+            return 'ok'
+        return SimpleNamespace(ensure=ensure)
+    monkeypatch.setattr('agent.desktop_login.DesktopChat', fake_chat)
+    monkeypatch.setattr('agent.authgate.AuthGate', fake_gate)
+    env = {'OWNER_ID': '123', 'DAEVIS_MCP_OWNER_REQUEST': '123', 'DAEVIS_MCP_REQUEST_EXPIRES': '9999999999',
+           'DAEVIS_MCP_REQUEST_ID': 'owner-rq', 'DAEVIS_LOGIN_IMAGE_ASSIST': 'desktop',
+           'DAEVIS_MCP_ALLOW_TOOLS': 'auth_ensure', 'DAEVIS_MCP_APPROVAL': 'deny'}
+    runtime = build_runtime(tmp_path, env)
+    result = runtime.call('auth_ensure', {'site': 'naver'})
+    assert not result.isError and json.loads(result.content[0].text)['status'] == 'ok'
+    assert events == ['crop', 'desktop_chat', ('submit', 'current', '5')]
+    assert not runtime.approve('auth_ensure', {'site': 'google'})
 
 
 def test_public_scope_cannot_invoke_private_tools_even_via_recipes():

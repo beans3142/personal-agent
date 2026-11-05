@@ -22,7 +22,7 @@ def parse_answer(raw):
     answer = value.get('answer') if isinstance(value, dict) else None
     if not isinstance(value, dict) or set(value) != {'answer'} or not isinstance(answer, str):
         raise ValueError('unverified image answer')
-    if not re.fullmatch(r'[0-9A-Za-z가-힣 -]{1,40}', answer) or not answer.strip():
+    if not re.fullmatch(r'[0-9A-Za-z가-힣 .(),-]{1,40}', answer) or not answer.strip():
         raise ValueError('invalid image answer')
     return answer.strip()
 
@@ -82,7 +82,10 @@ class DesktopChatUI:
                         show_sidebar.click()
                     page.get_by_role('button', name='New chat', exact=True).filter(has_text=re.compile(r'^\s*New chat\s*$')).click()
                     page.get_by_role('button', name='Chat', exact=True).click()
-                    reply = page.locator('[data-markdown-text-style="assistant-message"]')
+                    # App keeps older conversations mounted but hidden. Reading
+                    # the unfiltered last node can return a previous answer
+                    # before the current generation has started.
+                    reply = page.locator('[data-markdown-text-style="assistant-message"]:visible')
                     if reply.count():
                         reply.first.wait_for(state='hidden', timeout=10000)
                     page.get_by_role('button', name='Add files and more', exact=True).click()
@@ -124,6 +127,8 @@ class DesktopChallenge:
             return False
         os.close(fd)
         ledger = self.data / 'desktop-challenge.json'
+        phase = 'capture'
+        submitted = False
         try:
             snapshot = page.login_challenge(site.name)
             digest = hashlib.sha256(site.name.encode() + snapshot['key'].encode() + snapshot['image'] + snapshot['question'].encode()).hexdigest()
@@ -136,14 +141,27 @@ class DesktopChallenge:
             temp.write_text(json.dumps((seen + [digest])[-64:]))
             temp.chmod(0o600)
             temp.replace(ledger)
+            phase = 'desktop_answer'
             answer = parse_answer(self.ask(snapshot['image'], snapshot['question']))
-            return page.submit_login_challenge(snapshot['key'], answer)
+            phase = 'submit'
+            submitted = page.submit_login_challenge(snapshot['key'], answer)
+            if not submitted:
+                self.last_failure = 'challenge_changed_or_not_accepted'
+            return submitted
         except Exception as error:
             code = str(error)
             self.last_failure = code if type(error).__name__ == 'AuthBlocked' and re.fullmatch(r'[a-z_]{1,64}', code) else type(error).__name__
             return False
         finally:
-            lock.unlink(missing_ok=True)
+            try:
+                audit = self.data / 'login-image-last.json'
+                temp = audit.with_suffix('.tmp')
+                temp.write_text(json.dumps({'site': site.name, 'phase': phase, 'submitted': submitted,
+                                            'failure': self.last_failure, 'at': time.time()}))
+                temp.chmod(0o600)
+                temp.replace(audit)
+            finally:
+                lock.unlink(missing_ok=True)
 
 
 if __name__ == '__main__':
