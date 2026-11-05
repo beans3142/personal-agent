@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.loop import Tool
 
-ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message'})
+ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown'})
 
 
 def validate_bind_address(value):
@@ -229,7 +229,7 @@ def build_device_tools(data_path, env=None):
     return [
         Tool('device_nodes', 'List enrolled devices and recent heartbeat availability. Offline nodes are not connected.', schema({}), lambda a: json.dumps(store.list_nodes())),
         Tool('device_jobs', 'List recent action delivery/results. succeeded means node command completed, not hardware verification.', schema({}), lambda a: json.dumps(store.list_jobs())),
-        Tool('device_enqueue', 'Queue terminal text message, immediate phone sound notification or configured LAN WoL packet. Approval required. A queued action is not executed success. Use stable request_key for retries.',
+        Tool('device_enqueue', 'Queue terminal text, phone sound, configured WoL or explicitly enrolled Windows PC shutdown/cancel. PC and WoL payloads must be empty. Approval required. A queued action is not executed success. Use stable request_key for retries.',
              schema({'node': {'type': 'string'}, 'action': {'type': 'string', 'enum': sorted(ACTIONS)},
                      'payload': {'type': 'object'}, 'request_key': {'type': 'string'},
                      'ttl_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 300}},

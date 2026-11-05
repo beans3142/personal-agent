@@ -16,6 +16,7 @@ import discord
 from .power import PowerControl, power_command
 from .pc_wake import pc_power_command, wake_pc
 from pathlib import Path
+from .pc_control import PCRegistry, parse_pc_command, pc_handler, BASE
 
 log = logging.getLogger("power")
 BOOT_NOTE = "본체 Agent가 Discord에 접속하기까지 1~3분 더 걸려요."
@@ -41,6 +42,10 @@ class PowerBot(discord.Client):
         self.control = control
         self.lock = asyncio.Lock()
 
+    async def setup_hook(self):
+        from .pc_discord import PCHomeView
+        self.add_view(PCHomeView(self))
+
     async def on_message(self, message: discord.Message):
         if message.author.id != self.owner_id or message.author.bot:
             return
@@ -49,6 +54,18 @@ class PowerBot(discord.Client):
             if self.user is None or not re.search(rf"<@!?{self.user.id}>", text):
                 return
             text = re.sub(rf"<@!?{self.user.id}>", "", text).strip()
+        pc_command = parse_pc_command(text)
+        if pc_command and getattr(self,'pc_registry',None):
+            try:
+                await self.handle_pc(message, *pc_command)
+            except ValueError as error:
+                reason=str(error)
+                await message.channel.send('PC가 연결되어 있지 않아 요청을 보내지 않았어요.' if 'offline' in reason else
+                    '등록된 PC 이름을 확인해 주세요. `PC 목록`으로 확인할 수 있어요.')
+            except Exception:
+                log.exception('PC control request failed')
+                await message.channel.send('PC 요청을 처리하지 못했어요. 실행 여부 확인 전에는 다시 시도하지 마세요.')
+            return
         command = 'pc_on' if pc_power_command(text) else power_command(text)
         if command is None:
             return
@@ -58,6 +75,48 @@ class PowerBot(discord.Client):
             except Exception:
                 log.exception("power command failed")
                 await message.channel.send("전원 명령을 처리하지 못했어요. 전원 봇 로그를 확인해야 해요.")
+
+    async def handle_pc(self,message,action,label):
+        registry=self.pc_registry
+        if action=='list':
+            from .pc_discord import PCView
+            view=PCView(self)
+            await message.channel.send(view.content(),view=view)
+            return
+        if action=='register':
+            code=await asyncio.to_thread(registry.invite,label)
+            owner=await self.fetch_user(self.owner_id);dm=await owner.create_dm()
+            command="& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing '"+BASE+"/install.ps1').Content)) -Code '"+code+"'"
+            await dm.send(label+' 등록: **해당 PC**의 PowerShell에 아래 한 줄을 붙여넣으세요. 15분간 한 번만 사용할 수 있습니다. 이 PC에 종료·종료 취소 권한을 연결하며, Windows 로그인 시 자동 연결됩니다.\n```powershell\n'+command+'\n```')
+            if message.guild is not None:await message.channel.send('PC 등록 명령을 본인 DM으로 보냈어요.')
+            return
+        if action in ('default','remove'):
+            name=await asyncio.to_thread(registry.set_default if action=='default' else registry.remove,label)
+            await message.channel.send(name+('을 기본 PC로 설정했어요.' if action=='default' else ' 등록을 해제했어요.'))
+            return
+        if action=='wake':
+            pc=await asyncio.to_thread(registry.resolve,label)
+            config_path=Path(os.environ.get('PC_WAKE_CONFIG','data/pc-wake.json'))
+            import json
+            config=json.loads(config_path.read_text())
+            if pc['node']!=config.get('pc_node'):
+                await message.channel.send(pc['label']+'의 깨우기 설정은 아직 등록되지 않았어요. 다른 PC를 대신 켜지 않습니다.')
+                return
+            await asyncio.to_thread(wake_pc,config_path)
+            await message.channel.send(pc['label']+' 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.')
+            return
+        job=await asyncio.to_thread(registry.submit,label,action,'discord-'+str(message.id))
+        status=job['status']
+        for _ in range(6):
+            if status!='queued' and status!='dispatched':break
+            await asyncio.sleep(2)
+            status=(await asyncio.to_thread(registry.job,job['id']))['status']
+        if status=='succeeded':
+            text=(job['label']+'이 종료 요청을 접수했어요. **60초 뒤** Windows에 종료를 요청합니다.\n취소: `'+job['label']+' 종료 취소`') if action=='shutdown' else job['label']+'이 종료 예약 취소 요청을 접수했어요.'
+        elif status in ('queued','dispatched'):
+            text=job['label']+'에 요청을 전달 중이에요. PC의 접수는 아직 확인되지 않았어요.'
+        else:text=job['label']+' 요청이 실행되지 않았거나 확인되지 않았어요. 자동으로 다시 보내지 않습니다.'
+        await message.channel.send(text)
 
     async def handle(self, channel, command: str) -> None:
         if command == 'pc_on':
@@ -103,6 +162,11 @@ def main() -> None:
     token = os.environ.get("DISCORD_BOT_TOKEN") or parameter("/personal-agent/discord-bot-token")
     ec2 = boto3.client("ec2", region_name=region)
     bot = PowerBot(int(owner), PowerControl(ec2, os.environ["AGENT_INSTANCE_ID"]))
+    from http.server import ThreadingHTTPServer
+    from threading import Thread
+    bot.pc_registry=PCRegistry(Path('data/pc-control.sqlite3'))
+    relay=ThreadingHTTPServer(('127.0.0.1',8792),pc_handler(bot.pc_registry,Path('public')))
+    Thread(target=relay.serve_forever,daemon=True).start()
     bot.run(token, log_handler=None)
 
 

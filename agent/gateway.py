@@ -296,7 +296,8 @@ class Gateway(discord.Client):
         if not text:
             return
         from .pc_wake import pc_power_command
-        if power_command(text) or pc_power_command(text):
+        from .pc_control import parse_pc_command
+        if power_command(text) or pc_power_command(text) or parse_pc_command(text):
             return  # The always-on power bot answers these with the same token.
         if getattr(self,'draining',False):
             await self.send_long(channel,"서버가 종료 중입니다. 대비스 온라인으로 다시 켜 주세요.")

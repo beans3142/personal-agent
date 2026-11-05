@@ -32,6 +32,7 @@ import socket
 import sqlite3
 import subprocess
 import time
+import sys
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -43,7 +44,7 @@ def validate_base_url(value):
         raise ValueError('invalid node base URL')
     parsed = urlsplit(value)
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username is not None or
-            parsed.password is not None or parsed.path not in {'', '/', '/daevis', '/daevis/'}):
+            parsed.password is not None or parsed.path not in {'', '/', '/daevis', '/daevis/', '/pc-power', '/pc-power/'}):
         raise ValueError('node URL requires HTTPS and optional exact /daevis path')
     # Accessing port also rejects malformed or out-of-range port syntax.
     parsed.port
@@ -60,7 +61,14 @@ def execute_action(job, config):
     action, payload = job['action'], job['payload']
     if action not in config.get('actions', []):
         raise ValueError('action not locally allowed')
-    if action == 'text_message':
+    if action in ('pc_shutdown','pc_cancel_shutdown'):
+        if payload or config.get('allow_shutdown') is not True or sys.platform!='win32':
+            raise ValueError('Windows shutdown not explicitly enabled')
+        if action=='pc_shutdown':
+            # Duplicate requests never extend a running countdown.
+            if config.get('_shutdown_at') is None:config['_shutdown_at']=time.monotonic()+60
+        else:config.pop('_shutdown_at',None)
+    elif action == 'text_message':
         if not isinstance(payload, dict) or set(payload) != {'text'} or not isinstance(payload['text'], str) or not 1 <= len(payload['text']) <= 240:
             raise ValueError('invalid terminal message')
         # JSON escapes terminal control characters, including escape/newlines.
@@ -176,6 +184,19 @@ class PollBackoff:
         return delay
 
 
+def run_due_shutdown(config,run=subprocess.run,now=None):
+    due=config.get('_shutdown_at')
+    if due is None or (time.monotonic() if now is None else now)<due:return False
+    config.pop('_shutdown_at',None)
+    if config.get('allow_shutdown') is not True or sys.platform!='win32':raise ValueError('shutdown disabled')
+    # A positive Windows /t implies /f. Wait in this process, then request a
+    # graceful shutdown; unsaved applications may block it. No forced closure.
+    executable=str(Path(os.environ.get('SystemRoot',r'C:\Windows'))/'System32'/'shutdown.exe')
+    run([executable,'/s','/t','0'],check=True,timeout=15,stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    return True
+
+
 def poll_forever(config, state, sleep=time.sleep, attempt=run_once):
     backoff = PollBackoff()
     while True:
@@ -190,7 +211,14 @@ def poll_forever(config, state, sleep=time.sleep, attempt=run_once):
                 print('Node connection/action check failed; retry with bounded backoff, without replay.', flush=True)
         else:
             delay = backoff.delay()
-        sleep(delay)
+            delay = min(delay,max(5,min(60,int(config.get('poll_seconds',delay)))))
+        if config.get('_shutdown_at') is None:sleep(delay)
+        else:
+            for _ in range(int(delay)):
+                sleep(1)
+                try:run_due_shutdown(config)
+                except (OSError,ValueError,subprocess.SubprocessError):
+                    print('Graceful shutdown request failed; no retry.',flush=True)
 
 
 def main():
@@ -206,7 +234,7 @@ def main():
     parser.add_argument('--ttl-seconds', type=int, default=120)
     args = parser.parse_args()
     config_path = Path(args.config).resolve()
-    config = json.loads(config_path.read_text())
+    config = json.loads(config_path.read_text(encoding='utf-8-sig'))
     try:
         config['url'] = validate_base_url(config['url'])
     except (ValueError, KeyError):
