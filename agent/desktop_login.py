@@ -4,10 +4,12 @@ Only the isolated verification image and question leave AuthGate. No credentials
 whole-screen screenshots, model-selected selectors, code, or automatic retries.
 """
 import hashlib
+import base64
 import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 import time
 
@@ -26,10 +28,33 @@ def parse_answer(raw):
 
 
 class DesktopChat:
-    def __init__(self, endpoint='http://127.0.0.1:9350'):
+    def __init__(self, endpoint='http://127.0.0.1:9350', run=None):
         if endpoint != 'http://127.0.0.1:9350':
             raise ValueError('desktop endpoint must be the fixed local app')
         self.endpoint = endpoint
+        self.run = run
+
+    def ask(self, image, question):
+        # AuthGate already owns a synchronous Playwright loop. A child process
+        # prevents nested-loop errors and bounds cleanup independently.
+        if not isinstance(image, bytes) or not 0 < len(image) <= 2 * 1024 * 1024:
+            raise ValueError('verification image size invalid')
+        if not isinstance(question, str) or not 0 < len(question) <= 1000:
+            raise ValueError('verification question invalid')
+        from .hermes_runner import run_process
+        env = {key: os.environ[key] for key in ('PATH', 'HOME', 'DISPLAY', 'LANG', 'LC_ALL', 'PLAYWRIGHT_BROWSERS_PATH') if key in os.environ}
+        result = (self.run or run_process)([sys.executable, '-m', 'agent.desktop_login', '--ask'],
+            input=json.dumps({'image': base64.b64encode(image).decode(), 'question': question}),
+            text=True, encoding='utf-8', env=env, timeout=90, start_new_session=True,
+            cwd=str(Path(__file__).resolve().parent.parent))
+        if result.returncode:
+            raise ValueError('desktop_image_unavailable')
+        parse_answer(result.stdout)
+        return result.stdout.strip()
+
+
+class DesktopChatUI:
+    endpoint = 'http://127.0.0.1:9350'
 
     def ask(self, image, question):
         if not isinstance(image, bytes) or not 0 < len(image) <= 2 * 1024 * 1024:
@@ -52,6 +77,9 @@ class DesktopChat:
                     if len(pages) != 1:
                         raise ValueError('desktop Chat login required')
                     page = pages[0]
+                    show_sidebar = page.get_by_role('button', name='Show sidebar', exact=True)
+                    if show_sidebar.count():
+                        show_sidebar.click()
                     page.get_by_role('button', name='New chat', exact=True).filter(has_text=re.compile(r'^\s*New chat\s*$')).click()
                     page.get_by_role('button', name='Chat', exact=True).click()
                     reply = page.locator('[data-markdown-text-style="assistant-message"]')
@@ -80,23 +108,28 @@ class DesktopChat:
 class DesktopChallenge:
     def __init__(self, ask, data, approve=lambda *_: False):
         self.ask, self.data, self.approve = ask, Path(data), approve
+        self.last_failure = None
 
     def __call__(self, site, page):
+        self.last_failure = None
         if site.name != 'naver' or not self.approve('login_image_challenge', {'site': site.name, 'solver': 'ChatGPT desktop'}):
+            self.last_failure = 'approval_required'
             return False
         self.data.mkdir(parents=True, exist_ok=True)
         lock = self.data / 'desktop-challenge.lock'
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
+            self.last_failure = 'verification_locked'
             return False
         os.close(fd)
         ledger = self.data / 'desktop-challenge.json'
         try:
             snapshot = page.login_challenge(site.name)
-            digest = hashlib.sha256(site.name.encode() + snapshot['image'] + snapshot['question'].encode()).hexdigest()
+            digest = hashlib.sha256(site.name.encode() + snapshot['key'].encode() + snapshot['image'] + snapshot['question'].encode()).hexdigest()
             seen = json.loads(ledger.read_text()) if ledger.exists() else []
             if digest in seen:
+                self.last_failure = 'already_attempted'
                 return False
             # Record before uploading/submitting, even if the process later dies.
             temp = ledger.with_suffix('.tmp')
@@ -105,7 +138,23 @@ class DesktopChallenge:
             temp.replace(ledger)
             answer = parse_answer(self.ask(snapshot['image'], snapshot['question']))
             return page.submit_login_challenge(snapshot['key'], answer)
-        except Exception:
+        except Exception as error:
+            code = str(error)
+            self.last_failure = code if type(error).__name__ == 'AuthBlocked' and re.fullmatch(r'[a-z_]{1,64}', code) else type(error).__name__
             return False
         finally:
             lock.unlink(missing_ok=True)
+
+
+if __name__ == '__main__':
+    try:
+        if sys.argv[1:] != ['--ask']:
+            raise ValueError('unsupported invocation')
+        payload = json.load(sys.stdin)
+        if set(payload) != {'image', 'question'}:
+            raise ValueError('invalid payload')
+        raw = DesktopChatUI().ask(base64.b64decode(payload['image'], validate=True), payload['question'])
+        print(json.dumps({'answer': parse_answer(raw)}, ensure_ascii=False))
+    except Exception as error:
+        print(type(error).__name__, file=sys.stderr)
+        raise SystemExit(1)

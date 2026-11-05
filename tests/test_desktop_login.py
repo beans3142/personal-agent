@@ -3,6 +3,19 @@ import pytest
 from agent.desktop_login import parse_answer, DesktopChallenge
 
 
+def test_desktop_worker_does_not_inherit_login_credentials(monkeypatch):
+    from types import SimpleNamespace
+    from agent.desktop_login import DesktopChat
+    monkeypatch.setenv('NAVER_PASSWORD', 'must-not-reach-worker')
+    def run(argv, **kwargs):
+        assert argv[-2:] == ['agent.desktop_login', '--ask']
+        assert 'NAVER_PASSWORD' not in kwargs['env']
+        assert kwargs['timeout'] == 90
+        assert set(json.loads(kwargs['input'])) == {'image', 'question'}
+        return SimpleNamespace(returncode=0, stdout='{"answer":"5"}')
+    assert parse_answer(DesktopChat(run=run).ask(b'image', 'quantity?')) == '5'
+
+
 def test_answer_is_structured_short_text_only():
     assert parse_answer('{"answer":"17"}') == '17'
     for raw in ['17','{"answer":null}','{"answer":"x","command":"click"}','{"answer":"a\\nb"}']:
@@ -48,3 +61,17 @@ def test_changed_challenge_never_receives_a_stale_answer():
     page._login_challenge = ('old-key', SimpleNamespace(get_attribute=lambda _: 'changed'), 'original',
         SimpleNamespace(fill=lambda _: pytest.fail('stale answer must not be entered')), None)
     assert page.submit_login_challenge('old-key', '5') is False
+
+
+def test_separate_naver_verification_page_uses_its_confirm_button():
+    from types import SimpleNamespace
+    from agent.authgate import PlaywrightPage
+    empty = SimpleNamespace(count=lambda: 0)
+    image = SimpleNamespace(count=lambda: 1, get_attribute=lambda _: 'https://nid.naver.com/image', screenshot=lambda: b'crop')
+    target = SimpleNamespace(count=lambda: 1)
+    confirm = SimpleNamespace(count=lambda: 1)
+    locators = {'#captchaimg:visible': image, '#captcha:visible, #chptcha:visible': target}
+    page = PlaywrightPage(SimpleNamespace(url='https://nid.naver.com/nidlogin.login',
+        locator=lambda selector: locators.get(selector, empty), get_by_role=lambda *a, **k: confirm))
+    assert page.login_challenge('naver')['image'] == b'crop'
+    assert page._login_challenge[-1] is confirm

@@ -274,6 +274,8 @@ class PlaywrightPage:
                 raise AuthBlocked('unsafe_verification_crop')
             target = frame.get_by_role('textbox')
             submit = frame.get_by_role('button', name=re.compile(r'^(Confirm|확인)$', re.I))
+            target.first.wait_for(state='visible', timeout=10000)
+            submit.first.wait_for(state='visible', timeout=10000)
             if target.count() != 1 or submit.count() != 1:
                 raise AuthBlocked('unsupported_verification_controls')
             question = frame.locator('body').inner_text()[:1000]
@@ -289,6 +291,8 @@ class PlaywrightPage:
             image = marker.screenshot()
             target = self.page.locator('#captcha:visible, #chptcha:visible')
             submit = self.page.locator("button[id^='loginBtn']:visible")
+            if submit.count() == 0:
+                submit = self.page.get_by_role('button', name=re.compile(r'^(Confirm|확인)$', re.I))
             if target.count() != 1 or submit.count() != 1:
                 raise AuthBlocked('unsupported_verification_controls')
         key = hashlib.sha256(source.encode()).hexdigest()
