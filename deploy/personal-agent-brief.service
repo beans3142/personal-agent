@@ -1,0 +1,14 @@
+[Unit]
+Description=Collect, summarize and publish the owner daily brief
+After=network-online.target personal-agent-chatgpt.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/personal-agent
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ubuntu/personal-agent/.venv/bin/python -m agent.private.brief.pipeline --scheduled
+TimeoutStartSec=15min
+UMask=0077
+NoNewPrivileges=true

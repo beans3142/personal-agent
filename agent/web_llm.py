@@ -14,7 +14,7 @@ ANSWER_TIMEOUT_SECONDS = 60
 MAX_QUICK_CHARS = 300
 # Requests that obviously need tools skip the web lane without spending a call.
 TOOL_HINTS = re.compile(
-    r"https?://|카톡|카카오|메일|예약|알림|알람|일정|기억|검색|지도|경로|길찾|날씨|뉴스|오늘|내일|지금|보내|열어|켜|꺼|로그인|주문|결제|앱|안드로이드|채널|디스코드",
+    r"https?://|카톡|카카오|메일|예약|알림|알람|일정|기억|검색|지도|경로|길찾|날씨|뉴스|오늘|내일|지금|보내|열어|켜|꺼|로그인|주문|결제|앱|안드로이드|채널|디스코드|아까|방금|이전|위에서|이어서|내\s|내가|우리|브리핑|서버|쿠팡|배민|최신|요즘|그거|그건|이거|그럼",
     re.I,
 )
 log = logging.getLogger(__name__)
@@ -72,12 +72,16 @@ class QuickLane:
     def __init__(self, web, enabled: bool = True):
         self.web = web
         self.enabled = enabled
+        self.name = getattr(web, 'name', 'Gemini 웹')
 
     def try_answer(self, request: str) -> str | None:
         if not self.enabled or len(request) > MAX_QUICK_CHARS or TOOL_HINTS.search(request):
             return None
         try:
-            return parse_route(self.web.ask(route_prompt(request)))
+            answer = parse_route(self.web.ask(route_prompt(request)))
+            self.name = getattr(self.web, 'name', '웹 Chat')
+            self.last_metadata = getattr(self.web, 'last_metadata', {})
+            return answer
         except Exception as error:
             log.warning("quick lane failed, using main model: %s", type(error).__name__)
             return None

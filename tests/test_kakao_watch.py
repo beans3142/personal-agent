@@ -24,6 +24,52 @@ def test_send_once_searches_before_entering_message(tmp_path):
     assert calls == [('search', 'unique person'), ('send', 'hello')]
 
 
+def test_observed_group_identity_is_exact_and_not_a_similar_title():
+    from agent.kakao_watch import observed_group_members
+    assert observed_group_members(screen(room='room'), 'room') == 5
+    with pytest.raises(ValueError): observed_group_members(screen(room='room2'), 'room')
+
+
+def test_cache_lookup_does_not_open_ui_or_authorize_sending(tmp_path):
+    watch=KakaoWatcher(None,tmp_path/'watch.json')
+    watch.targets.remember('room','room','group',5)
+    watch._search_results=lambda _:pytest.fail('cached lookup should not repeat UI search')
+    result=watch.find_candidates('room')
+    assert result['status']=='cached_hints' and result['requires_live_verification']
+    assert result['candidates'][0]['room_type']=='group'
+
+
+def test_group_mention_selects_native_member_and_appends_without_replacing_span(tmp_path,monkeypatch):
+    from agent.kakao_watch import PREFIX
+    watch=KakaoWatcher(None,tmp_path/'watch.json');draft=[''];selected=[False];clicks=[]
+    def keys(text,clear=False):
+        assert not clear
+        if text=='hello':assert selected[0]
+        draft[0]+=text
+    def observe():
+        nodes=[{'id':1,'resource':PREFIX+'message_edit_text','text':draft[0]}]
+        if draft[0]=='@member' and not selected[0]:nodes.append({'id':2,'resource':PREFIX+'name_text','text':'member'})
+        return {'snapshot':'s','nodes':nodes}
+    def click(snapshot,index,label):
+        clicks.append(index)
+        if index==2:selected[0]=True;draft[0]+=' '
+    watch.control=SimpleNamespace(device=SimpleNamespace(dump_hierarchy=lambda:screen(),device=SimpleNamespace(send_keys=keys)),
+        observe=observe,click=click,input=lambda *a,**kw:pytest.fail('must not replace the native mention span'))
+    monkeypatch.setattr('agent.kakao_watch.time.sleep',lambda _:None)
+    assert watch.prepare_mention({'room':'room','members':5},'hello','member')=='@member hello'
+    assert clicks==[1,2]
+
+
+def test_native_search_input_can_be_unfocused_and_is_not_the_launcher(tmp_path):
+    watch=KakaoWatcher(None,tmp_path/'watch.json');calls=[]
+    watch.control=SimpleNamespace(observe=lambda:{'snapshot':'s','nodes':[
+        {'id':1,'package':'com.kakao.talk','input':True,'focused':False},
+        {'id':2,'package':'com.kakao.talk','input':True,'focused':False,'resource':'com.kakao.talk.finder:id/input_focus'}]},
+        input=lambda snapshot,index,**kw:calls.append((index,kw['text'])))
+    watch._enter_search_query('room')
+    assert calls==[(1,'room')]
+
+
 def test_self_recipient_uses_native_identity_instead_of_friend_search(tmp_path, monkeypatch):
     watch = KakaoWatcher(None, tmp_path / 'watch.json')
     watch.search_chat = lambda _: pytest.fail('self is not a normal indexed friend')

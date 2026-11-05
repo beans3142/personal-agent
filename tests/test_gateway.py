@@ -215,6 +215,30 @@ def test_hermes_backend_retains_kakao_privacy_and_public_context():
     assert 'Hermes' in output
 
 
+def test_no_tool_kakao_answer_is_never_reported_as_a_send_or_uncertain_send():
+    from agent.hermes_runner import HermesResult
+    memory=SimpleNamespace(load_history=lambda _:[],save_history=lambda *a:None,recent=lambda:[])
+    fake=SimpleNamespace(memory=memory,android=None,engine=SimpleNamespace(run=lambda *a,**k:HermesResult('KAKAO_SENT',True,100,10,1,0)))
+    reply=Gateway.turn(fake,'guild:1','카톡으로 메시지 보내줘',lambda *_:False)
+    assert reply.startswith('카카오톡 도구가 실행되지 않아 메시지는 보내지 않았습니다.')
+
+
+def test_literal_group_mention_uses_owner_arguments_without_model_or_extra_approval():
+    memory=SimpleNamespace(load_history=lambda _:[],save_history=lambda *a:None,recent=lambda:[])
+    sent=[]
+    fake=SimpleNamespace(memory=memory,android=None,kakao_watch=SimpleNamespace(send_once=lambda *a,**kw:sent.append((a,kw))),
+        engine=SimpleNamespace(run=lambda *a,**kw:pytest.fail('unnecessary model or MCP approval')))
+    reply=Gateway.turn(fake,'guild:1','카톡 테스트 방이 있음. 거기에 @친구 을 태그하고 안녕 - daevis 보내줘',lambda *_:pytest.fail('duplicate approval'))
+    assert sent==[(('테스트','안녕 - daevis'),{'room_type':'group','mention':'친구'})]
+    assert reply.startswith('메시지 전송을 완료했습니다.') and '모델 호출 0회' in reply
+
+
+def test_group_parser_requires_an_explicit_recipient_mention_and_literal_body():
+    from agent.kakao_intent import group_send_intent
+    assert group_send_intent('카톡 테스트방에서 @친구 를 태그하고 "대비스 테스트" 보내줘')['text']=='대비스 테스트'
+    assert group_send_intent('카톡 그 사람들이 있는 최신 방에 알아서 보내줘') is None
+
+
 def test_fixed_route_executes_code_without_model():
     from agent.loop import Tool
     memory=SimpleNamespace(load_history=lambda _:[],save_history=lambda *a:None,recent=lambda:[])

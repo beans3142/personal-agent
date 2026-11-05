@@ -49,6 +49,10 @@ def main():
     android=AndroidControl(UiaDevice(os.environ.get("ANDROID_SERIAL")),outbox=DATA/"outbox")
     gateway=HermesGateway(int(os.environ["OWNER_ID"]),None,memory,build_tools(memory,DATA/"schedule.json"),DATA/"schedule.json",None,android)
     gateway.engine=HermesRunner(os.environ["HERMES_PYTHON"],str(ROOT/"deploy/hermes-worker.py"),data=DATA)
+    from .desktop_text import DesktopText
+    from .claude_text import ClaudeText, ChatProviders
+    from .web_llm import QuickLane
+    gateway.quick_lane = QuickLane(ChatProviders(DesktopText(), ClaudeText()), enabled=os.environ.get('QUICK_LANE','on') != 'off')
     gateway.run(os.environ["DISCORD_BOT_TOKEN"],log_handler=None)
 
 

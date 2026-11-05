@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily brief at 09:00 KST and after server boot
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 Asia/Seoul
+OnBootSec=3min
+Persistent=true
+Unit=personal-agent-brief.service
+
+[Install]
+WantedBy=timers.target

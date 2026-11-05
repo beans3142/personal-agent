@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 import discord
 
 from .power import PowerControl, power_command
+from .pc_wake import pc_power_command, wake_pc
+from pathlib import Path
 
 log = logging.getLogger("power")
 BOOT_NOTE = "본체 Agent가 Discord에 접속하기까지 1~3분 더 걸려요."
@@ -30,6 +32,7 @@ def describe(status: dict) -> str:
 class PowerBot(discord.Client):
     def __init__(self, owner_id: int, control: PowerControl):
         intents = discord.Intents.none()
+        intents.guilds = True
         intents.dm_messages = True
         intents.guild_messages = True
         intents.message_content = True
@@ -46,7 +49,7 @@ class PowerBot(discord.Client):
             if self.user is None or not re.search(rf"<@!?{self.user.id}>", text):
                 return
             text = re.sub(rf"<@!?{self.user.id}>", "", text).strip()
-        command = power_command(text)
+        command = 'pc_on' if pc_power_command(text) else power_command(text)
         if command is None:
             return
         async with self.lock:
@@ -57,6 +60,13 @@ class PowerBot(discord.Client):
                 await message.channel.send("전원 명령을 처리하지 못했어요. 전원 봇 로그를 확인해야 해요.")
 
     async def handle(self, channel, command: str) -> None:
+        if command == 'pc_on':
+            try:
+                await asyncio.to_thread(wake_pc, Path(os.environ.get('PC_WAKE_CONFIG','data/pc-wake.json')))
+                await channel.send('PC 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.')
+            except (OSError, ValueError, KeyError):
+                await channel.send('PC 깨우기 신호를 보내지 못했어요. 저장된 PC 설정을 확인해야 해요.')
+            return
         if command == "status":
             await channel.send(describe(await asyncio.to_thread(self.control.status)))
             return

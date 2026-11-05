@@ -15,12 +15,22 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .android_control import AndroidControl
+from .kakao_targets import KakaoTargets
 
 PREFIX = "com.kakao.talk:id/"
 
 
 class KakaoRecipientUnavailable(ValueError):
     """No draft/send was attempted; read-only recipient lookup may follow."""
+
+
+def observed_group_members(xml, room):
+    root = ET.fromstring(xml)
+    titles = [n.get('content-desc') or n.get('text') for n in root.iter('node') if n.get('resource-id') == PREFIX+'toolbar_default_title_text']
+    counts = [n.get('content-desc') or n.get('text') for n in root.iter('node') if n.get('resource-id') == PREFIX+'toolbar_default_title_count']
+    if len(counts) != 1 or not counts[0] or not counts[0].isdigit() or int(counts[0]) < 2 or titles != [room+counts[0]]:
+        raise ValueError('exact group title and member count not verified')
+    return int(counts[0])
 
 
 def global_search_targets(nodes):
@@ -72,6 +82,7 @@ class KakaoWatcher:
     def __init__(self, device, path: Path):
         self.control = AndroidControl(device)
         self.path = path
+        self.targets = KakaoTargets(path.with_name('kakao-targets.json'))
         self._lock = threading.RLock()
 
     def load(self):
@@ -194,7 +205,7 @@ class KakaoWatcher:
         c = self.control
         for _ in range(20):
             o = c.observe()
-            fields = [n for n in o['nodes'] if n.get('input') and n.get('focused') and n.get('package') == 'com.kakao.talk' and n.get('resource') != PREFIX + 'message_edit_text']
+            fields = [n for n in o['nodes'] if n.get('input') and n.get('package') == 'com.kakao.talk' and n.get('resource') not in {PREFIX + 'message_edit_text', 'com.kakao.talk.finder:id/input_focus'}]
             if len(fields) == 1:
                 try:
                     c.input(o['snapshot'], fields[0]['id'], text=query)
@@ -214,22 +225,27 @@ class KakaoWatcher:
 
     def search_chat(self, state):
         """Use native search, select one exact name, then verify the chat title."""
-        if state['members'] is not None:
-            raise ValueError('direct search supports individual chats only')
+        group = state.get('kind') == 'group' or state['members'] is not None
         c = self.control
         self._search_results(state['room'])
         for _ in range(10):
             time.sleep(.3)
             o = c.observe()
-            matches = [n for n in o['nodes'] if n.get('package') == 'com.kakao.talk' and n.get('clickable') and not n.get('input') and
-                       (n.get('description') == state['room'] or n.get('description', '').startswith((state['room'] + ', ', 'me, ' + state['room'] + ', '))) and
-                       not re.search(r',\s*\d+ friends,', n.get('description', ''))]
+            matches = []
+            for n in o['nodes']:
+                if n.get('package') != 'com.kakao.talk' or not n.get('clickable') or n.get('input'):
+                    continue
+                desc, text = n.get('description', ''), n.get('text', '')
+                group_label = bool(re.match(re.escape(state['room'])+r'\s+\d+\b', text) or re.match(re.escape(state['room'])+r',\s*\d+ friends,', desc))
+                exact = desc == state['room'] or desc.startswith((state['room']+', ', 'me, '+state['room']+', '))
+                if group_label if group else exact and not re.search(r',\s*\d+ friends,', desc):
+                    matches.append(n)
             if len(matches) > 1:
                 raise ValueError('ambiguous exact search results')
             if len(matches) == 1:
                 n = matches[0]
                 try:
-                    c.click(o['snapshot'], n['id'], n.get('description', ''))
+                    c.click(o['snapshot'], n['id'], n.get('text') or n.get('description', ''))
                     break
                 except ValueError: pass
         else:
@@ -237,9 +253,19 @@ class KakaoWatcher:
         for _ in range(8):
             time.sleep(.3)
             try:
-                return read_chat(c.device.dump_hierarchy(), state['room'], None)
+                xml = c.device.dump_hierarchy()
+                if group:
+                    members = observed_group_members(xml, state['room'])
+                    if state['members'] is not None and state['members'] != members:
+                        raise ValueError('group member count changed')
+                    state['members'] = members
+                result = read_chat(xml, state['room'], state['members'])
+                self.targets.remember(state['room'], state['room'], 'group' if group else 'individual', state['members'])
+                return result
             except ValueError:
                 pass
+            if group:
+                continue
             o = c.observe()
             # A Friends result opens its profile before 1:1 Chat.
             names = [n for n in o['nodes'] if n.get('text') == state['room'] and not n.get('input')]
@@ -248,12 +274,17 @@ class KakaoWatcher:
                 n = actions[0]
                 try: c.click(o['snapshot'], n['id'], n.get('text') or n.get('description'))
                 except ValueError: pass
-        raise ValueError('exact individual chat could not be verified')
+        raise ValueError('exact chat could not be verified')
 
     def find_candidates(self, query):
         """Fuzzy candidates are evidence for clarification, never send targets."""
         if not isinstance(query, str) or not 1 <= len(query.strip()) <= 30:
             raise ValueError('lookup query must contain 1..30 characters')
+        cached = [e for kind in ('individual', 'group') if (e := self.targets.get(query, kind))]
+        if cached:
+            return {'status': 'cached_hints', 'candidates': [{'name': e['title'], 'exact': e['title'] == query,
+                    'room_type': e['kind'], 'members': e['members'], 'uses': e['hits']} for e in cached],
+                    'requires_live_verification': True}
         normalize = lambda value: ''.join(unicodedata.normalize('NFC', value).split()).casefold()
         normalized = normalize(query)
         queries = list(dict.fromkeys([query, normalized[:2], normalized[-2:]])) if len(normalized) > 2 else [query]
@@ -276,10 +307,12 @@ class KakaoWatcher:
         return {'status': 'candidates_only', 'candidates': [{'name': name, 'exact': name == query} for name in ranked[:3]],
                 'limitations': 'Names only. No participant membership or latest-room proof. Do not send to an approximate match without owner confirmation.'}
 
-    def send_once(self, recipient: str, text: str, *, request_id=None):
+    def send_once(self, recipient: str, text: str, *, request_id=None, room_type='individual', mention=None):
         if not recipient.strip() or not text.strip() or len(text) > 2000:
             raise ValueError('invalid direct message')
-        state = {"room": recipient, "members": None, "until": (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()}
+        if room_type not in {'individual', 'group'} or (mention and room_type != 'group'):
+            raise ValueError('mentions require a group target')
+        state = {"room": recipient, "members": None, 'kind': room_type, "until": (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()}
         journal = self.path.with_name('kakao-direct-send.json')
         journal.parent.mkdir(parents=True, exist_ok=True)
         lock_path = journal.with_suffix('.lock')
@@ -292,12 +325,12 @@ class KakaoWatcher:
             previous = json.loads(journal.read_text()) if journal.exists() else {}
             if previous.get('status') == 'pending':
                 raise ValueError('previous direct send uncertain; owner review required')
-            digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, text], ensure_ascii=False).encode()).hexdigest()
+            digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, text, room_type, mention], ensure_ascii=False).encode()).hexdigest()
             completed = previous.get('completed', [])[-255:]
             if digest in completed:
                 raise ValueError('already sent in this owner request; no automatic repeat')
             try:
-                if recipient in {'나', '나 자신', '나와의 채팅', 'self'}:
+                if room_type == 'individual' and recipient in {'나', '나 자신', '나와의 채팅', 'self'}:
                     # Self is not indexed as a normal friend in global search.
                     # Prove identity through Kakao's native My Chatroom action.
                     from .kakao_self import KakaoSelf
@@ -313,12 +346,47 @@ class KakaoWatcher:
                     stream.flush(); os.fsync(stream.fileno())
                 temp.replace(journal)
             record('pending')
-            self.send_text(state, text, check_enabled=False)
+            if mention:
+                self.send_text(state, text, check_enabled=False, mention=mention)
+            else:
+                self.send_text(state, text, check_enabled=False)
             record('succeeded')
         finally:
             lock_path.unlink(missing_ok=True)
 
-    def send_text(self, state, text: str, *, check_enabled=True):
+    def prepare_mention(self, state, text, mention):
+        if state['members'] is None or not isinstance(mention, str) or not 1 <= len(mention) <= 40:
+            raise ValueError('invalid group mention')
+        c = self.control
+        read_chat(c.device.dump_hierarchy(), state['room'], state['members'])
+        o = c.observe();fields = [n for n in o['nodes'] if n.get('resource') == PREFIX+'message_edit_text']
+        if len(fields) != 1 or fields[0].get('text', '').strip():
+            raise ValueError('existing or ambiguous message draft')
+        field = fields[0]
+        c.click(o['snapshot'], field['id'], field.get('text') or field.get('description', ''))
+        c.device.device.send_keys('@'+mention, clear=False)
+        for _ in range(8):
+            time.sleep(.25);o = c.observe()
+            candidates = [n for n in o['nodes'] if n.get('resource') == PREFIX+'name_text' and n.get('text') == mention]
+            if len(candidates) > 1:
+                raise ValueError('ambiguous mention member')
+            if len(candidates) == 1:
+                n = candidates[0];c.click(o['snapshot'], n['id'], n['text']);break
+        else:
+            raise ValueError('native mention picker unavailable; no send')
+        o = c.observe();fields = [n for n in o['nodes'] if n.get('resource') == PREFIX+'message_edit_text']
+        if len(fields) != 1 or not fields[0].get('text', '').startswith('@'+mention):
+            raise ValueError('native mention selection not verified')
+        prefix = fields[0]['text']
+        read_chat(c.device.dump_hierarchy(), state['room'], state['members'])
+        c.device.device.send_keys(text, clear=False)  # Preserve native mention spans.
+        expected = prefix+text
+        o = c.observe();fields = [n for n in o['nodes'] if n.get('resource') == PREFIX+'message_edit_text']
+        if len(fields) != 1 or fields[0].get('text') != expected:
+            raise ValueError('mentioned draft not verified; no send')
+        return expected
+
+    def send_text(self, state, text: str, *, check_enabled=True, mention=None):
         if not text.strip():
             raise ValueError("empty automatic reply")
         def guard():
@@ -334,7 +402,10 @@ class KakaoWatcher:
             raise ValueError("ambiguous Kakao input")
         if fields[0].get('text', '').strip():
             raise ValueError('existing message draft; no overwrite or send')
-        self.control.input(observed["snapshot"], fields[0]["id"], text=text)
+        if mention:
+            text = self.prepare_mention(state, text, mention)
+        else:
+            self.control.input(observed["snapshot"], fields[0]["id"], text=text)
         guard()
         observed = self.control.observe()
         buttons = [n for n in observed["nodes"] if n.get("description") in ("Send", "전송") or n.get("resource") == PREFIX + "send"]
@@ -363,7 +434,7 @@ def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candida
     trusted_id = request_id or uuid.uuid4().hex
     def send(args):
         try:
-            watcher.send_once(args['recipient'], args['text'], request_id=trusted_id)
+            watcher.send_once(args['recipient'], args['text'], request_id=trusted_id, room_type=args.get('room_type', 'individual'), mention=args.get('mention'))
         except KakaoRecipientUnavailable:
             return 'KAKAO_RECIPIENT_REQUIRED'
         return 'KAKAO_SENT'
@@ -372,7 +443,7 @@ def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candida
         if notify_candidates and result['candidates']:
             notify_candidates('카톡 수신자 후보입니다. 아직 전송하지 않았습니다. 정확한 이름으로 다시 요청해 주세요.\n' + '\n'.join(f"{i+1}. {c['name']}" for i, c in enumerate(result['candidates'])))
         return json.dumps(result, ensure_ascii=False)
-    return [Tool('kakao_send', 'Search exact recipient in native Kakao search, verify individual chat, send once and verify new outgoing bubble. Use instead of manual Android steps. Approximate names require owner confirmation first. Status only.',
-        {'type': 'object', 'properties': {'recipient': {'type': 'string', 'minLength': 1, 'maxLength': 30}, 'text': {'type': 'string', 'minLength': 1, 'maxLength': 2000}}, 'required': ['recipient', 'text'], 'additionalProperties': False}, send, needs_approval=True),
+    return [Tool('kakao_send', 'Search exact individual/group room, verify native title/count, send once and verify outgoing bubble. For group use room_type=group; optional mention selects the actual Kakao member picker and preserves native mention. Never substitute literal @text. Status only.',
+        {'type': 'object', 'properties': {'recipient': {'type': 'string', 'minLength': 1, 'maxLength': 30}, 'text': {'type': 'string', 'minLength': 1, 'maxLength': 2000}, 'room_type': {'type': 'string', 'enum': ['individual', 'group']}, 'mention': {'type': 'string', 'minLength': 1, 'maxLength': 40}}, 'required': ['recipient', 'text'], 'additionalProperties': False}, send, needs_approval=True),
         Tool('kakao_find_recipient', 'Read-only native search for exact names or typo candidates. Returns at most 3 names, never sends. Does NOT prove membership or most-recent-room selection. Approximate matches require owner confirmation.',
         {'type': 'object', 'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 30}}, 'required': ['query'], 'additionalProperties': False}, find)]

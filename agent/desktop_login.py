@@ -57,6 +57,11 @@ class DesktopChatUI:
     endpoint = 'http://127.0.0.1:9350'
 
     def ask(self, image, question):
+        from .desktop_text import ui_lock
+        with ui_lock():
+            return self._ask(image, question)
+
+    def _ask(self, image, question):
         if not isinstance(image, bytes) or not 0 < len(image) <= 2 * 1024 * 1024:
             raise ValueError('verification image size invalid')
         if not isinstance(question, str) or not 0 < len(question) <= 1000:
