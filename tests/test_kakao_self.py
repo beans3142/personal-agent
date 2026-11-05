@@ -39,6 +39,22 @@ def test_self_navigation_requires_literal_my_chatroom(tmp_path):
     assert clicks == [1, 2]
 
 
+def test_self_navigation_leaves_global_search_before_selecting_profile(tmp_path):
+    helper = KakaoSelf(None, tmp_path, sleep=lambda _: None)
+    helper.control, clicks = fake_control()
+    observe = helper.control.observe
+    searching = [True]
+    def observed():
+        if searching[0]:
+            return {'snapshot': 'search', 'nodes': [{'resource': 'com.kakao.talk.finder:id/input_focus'},
+                {'id': 99, 'clickable': True, 'description': 'search-result, Profile photo'}]}
+        return observe()
+    helper.control.observe = observed
+    helper.control.key = lambda key: searching.__setitem__(0, False)
+    assert helper.open_self() == 'owner'
+    assert clicks == [1, 2]
+
+
 def test_cold_launcher_frame_does_not_press_back(tmp_path):
     helper = KakaoSelf(None, tmp_path, sleep=lambda _: None)
     helper.control, clicks = fake_control()

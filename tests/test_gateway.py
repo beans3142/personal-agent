@@ -144,6 +144,37 @@ def test_only_explicit_quoted_kakao_messages_use_programmatic_route():
     assert quoted_kakao_message('테스트 방 카톡으로 "hi" 보내줘') is None
 
 
+def test_literal_kakao_send_uses_programmatic_route_with_or_without_quotes():
+    assert quoted_kakao_message('카카오톡 도구 활용해서 테스트친구에게 ㅎㅇ라고 보내줘') == ('테스트친구', 'ㅎㅇ')
+    assert quoted_kakao_message('카톡으로 테스트친구에게 "안녕"이라고 보내줘') == ('테스트친구', '안녕')
+    assert quoted_kakao_message('테스트친구에게 안녕이라고 카톡 보내줘') == ('테스트친구', '안녕')
+    assert quoted_kakao_message('테스트친구에게 반갑다고 카톡 보내줘') is None
+    assert quoted_kakao_message('카톡으로 테스트친구에게 잘 지내냐고 물어봐') is None
+
+
+def test_recipient_lookup_failure_does_not_fall_back_to_model():
+    from agent.kakao_watch import KakaoRecipientUnavailable
+    memory = SimpleNamespace(load_history=lambda _: [], save_history=lambda *a: None, recent=lambda: [])
+    def unavailable(*args): raise KakaoRecipientUnavailable('ambiguous')
+    fake = SimpleNamespace(memory=memory, android=None, kakao_watch=SimpleNamespace(send_once=unavailable),
+        engine=SimpleNamespace(run=lambda *a, **k: pytest.fail('unsafe fallback')))
+    reply = Gateway.turn(fake, 'guild:1', '테스트친구 카톡으로 "hi" 보내줘', lambda *_: True)
+    assert reply.startswith('수신자를 확인해야 합니다.')
+
+
+def test_typo_candidates_are_delivered_only_in_private_without_sending():
+    from agent.kakao_watch import KakaoRecipientUnavailable
+    memory = SimpleNamespace(load_history=lambda _: [], save_history=lambda *a: None, recent=lambda: [])
+    notices = []
+    def unavailable(*args): raise KakaoRecipientUnavailable('no exact match')
+    fake = SimpleNamespace(memory=memory, android=None, notify_owner=notices.append,
+        kakao_watch=SimpleNamespace(send_once=unavailable, find_candidates=lambda _: {'candidates': [{'name': 'private-person'}]}),
+        engine=SimpleNamespace(run=lambda *a, **k: pytest.fail('unsafe fallback')))
+    reply = Gateway.turn(fake, 'guild:1', '테스트친구 카톡으로 "hi" 보내줘', lambda *_: True)
+    assert 'private-person' in notices[0] and 'private-person' not in reply
+    assert '아직 메시지는 보내지 않았습니다' in reply
+
+
 def test_quoted_send_does_not_call_model_or_expose_message(monkeypatch):
     memory=SimpleNamespace(load_history=lambda _:[],save_history=lambda *args:None,recent=lambda:[])
     sent=[]

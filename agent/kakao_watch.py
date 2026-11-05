@@ -4,6 +4,12 @@ from __future__ import annotations
 import json
 import threading
 import re
+import os
+import time
+import hashlib
+import uuid
+import unicodedata
+from difflib import SequenceMatcher
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -14,7 +20,17 @@ PREFIX = "com.kakao.talk:id/"
 
 
 class KakaoRecipientUnavailable(ValueError):
-    """No draft or send was attempted; a general lookup may safely follow."""
+    """No draft/send was attempted; read-only recipient lookup may follow."""
+
+
+def global_search_targets(nodes):
+    """Tablet has both list search and conversation search: select list only."""
+    def inside(child, parent):
+        a, b, c, d = parent['bounds']; x, y, z, w = child['bounds']
+        return a <= x <= z <= c and b <= y <= w <= d
+    bars = [n for n in nodes if n['resource'] == PREFIX + 'toolbar' and
+            any(t['resource'] == PREFIX + 'toolbar_main_title_text' and t['text'] in {'Chats', '채팅'} and inside(t, n) for t in nodes)]
+    return [n for n in nodes if n['package'] == 'com.kakao.talk' and n['description'] in {'Search', '검색'} and any(inside(n, bar) for bar in bars)]
 
 
 def read_chat(xml: str, room: str, members: int | None) -> list[dict]:
@@ -136,13 +152,171 @@ class KakaoWatcher:
         self.save(state, keep_stopped=True)
         return "replied"
 
-    def send_once(self, recipient: str, text: str):
+    def _search_results(self, query):
+        """Open native global search and enter only the lookup query."""
+        c = self.control
+        c.device.open('kakao')
+        if any(n.get('resource') == 'com.kakao.talk.finder:id/input_focus' for n in c.observe()['nodes']):
+            return self._enter_search_query(query)
+        # Return to the native chat list; never search a conversation's body.
+        for _ in range(8):
+            o = c.observe()
+            tabs = [n for n in o['nodes'] if n.get('description', '').startswith('Chats tab')]
+            titles = [n for n in o['nodes'] if n.get('resource') == PREFIX + 'toolbar_main_title_text' and n.get('text') in {'Chats', '채팅'}]
+            if titles:
+                break
+            if len(tabs) == 1:
+                n = tabs[0]
+                try: c.click(o['snapshot'], n['id'], n['description'])
+                except ValueError: pass
+            elif any(n.get('package') == 'com.kakao.talk' for n in o['nodes']):
+                c.key('back')
+            time.sleep(.4)
+        else:
+            raise ValueError('chat list unavailable')
+        for _ in range(5):
+            o = c.observe()
+            ids = {n['id'] for n in global_search_targets(c.nodes)}
+            buttons = [n for n in o['nodes'] if n['id'] in ids]
+            if len(buttons) == 1:
+                n = buttons[0]
+                try:
+                    c.click(o['snapshot'], n['id'], n['description'])
+                    break
+                except ValueError: pass
+            time.sleep(.3)
+        else:
+            raise ValueError('chat search unavailable')
+
+        self._enter_search_query(query)
+
+    def _enter_search_query(self, query):
+        c = self.control
+        for _ in range(20):
+            o = c.observe()
+            fields = [n for n in o['nodes'] if n.get('input') and n.get('focused') and n.get('package') == 'com.kakao.talk' and n.get('resource') != PREFIX + 'message_edit_text']
+            if len(fields) == 1:
+                try:
+                    c.input(o['snapshot'], fields[0]['id'], text=query)
+                    break
+                except ValueError: pass
+            else:
+                # Native search first exposes an unfocused launcher field;
+                # explicitly activate it instead of waiting for the keyboard.
+                launchers = [n for n in o['nodes'] if n.get('resource') == 'com.kakao.talk.finder:id/input_focus']
+                if len(launchers) == 1:
+                    n = launchers[0]
+                    try: c.click(o['snapshot'], n['id'], n.get('text') or n.get('description', ''))
+                    except ValueError: pass
+            time.sleep(.4)
+        else:
+            raise ValueError('search input unavailable')
+
+    def search_chat(self, state):
+        """Use native search, select one exact name, then verify the chat title."""
+        if state['members'] is not None:
+            raise ValueError('direct search supports individual chats only')
+        c = self.control
+        self._search_results(state['room'])
+        for _ in range(10):
+            time.sleep(.3)
+            o = c.observe()
+            matches = [n for n in o['nodes'] if n.get('package') == 'com.kakao.talk' and n.get('clickable') and not n.get('input') and
+                       (n.get('description') == state['room'] or n.get('description', '').startswith((state['room'] + ', ', 'me, ' + state['room'] + ', '))) and
+                       not re.search(r',\s*\d+ friends,', n.get('description', ''))]
+            if len(matches) > 1:
+                raise ValueError('ambiguous exact search results')
+            if len(matches) == 1:
+                n = matches[0]
+                try:
+                    c.click(o['snapshot'], n['id'], n.get('description', ''))
+                    break
+                except ValueError: pass
+        else:
+            raise ValueError('no exact search result')
+        for _ in range(8):
+            time.sleep(.3)
+            try:
+                return read_chat(c.device.dump_hierarchy(), state['room'], None)
+            except ValueError:
+                pass
+            o = c.observe()
+            # A Friends result opens its profile before 1:1 Chat.
+            names = [n for n in o['nodes'] if n.get('text') == state['room'] and not n.get('input')]
+            actions = [n for n in o['nodes'] if not n.get('resource') and (n.get('text') in {'1:1 Chat', '1:1 채팅'} or n.get('description') in {'1:1 Chat', '1:1 채팅'})]
+            if len(names) == 1 and len(actions) == 1:
+                n = actions[0]
+                try: c.click(o['snapshot'], n['id'], n.get('text') or n.get('description'))
+                except ValueError: pass
+        raise ValueError('exact individual chat could not be verified')
+
+    def find_candidates(self, query):
+        """Fuzzy candidates are evidence for clarification, never send targets."""
+        if not isinstance(query, str) or not 1 <= len(query.strip()) <= 30:
+            raise ValueError('lookup query must contain 1..30 characters')
+        normalize = lambda value: ''.join(unicodedata.normalize('NFC', value).split()).casefold()
+        normalized = normalize(query)
+        queries = list(dict.fromkeys([query, normalized[:2], normalized[-2:]])) if len(normalized) > 2 else [query]
+        candidates = set()
+        for term in queries:
+            self._search_results(term)
+            time.sleep(.5)
+            self.control.observe()
+            nodes = self.control.nodes
+            # Friend results expose a labelled clickable row and a matching
+            # child name. Exclude search fields, navigation and chat previews.
+            for row in nodes:
+                name = row['description']
+                if not row['clickable'] or row['package'] != 'com.kakao.talk' or not name or len(name) > 30 or 'EditText' in row['class'] or 'tab' in row.get('resource', '').lower() or name in {'Friends', 'Chats', 'Search', '친구', '채팅', '검색'}:
+                    continue
+                x1, y1, x2, y2 = row['bounds']
+                if any(n is not row and n['text'] == name and x1 <= n['bounds'][0] <= n['bounds'][2] <= x2 and y1 <= n['bounds'][1] <= n['bounds'][3] <= y2 for n in nodes):
+                    candidates.add(name)
+        ranked = sorted(candidates, key=lambda name: (-SequenceMatcher(None, normalized, normalize(name)).ratio(), name))
+        return {'status': 'candidates_only', 'candidates': [{'name': name, 'exact': name == query} for name in ranked[:3]],
+                'limitations': 'Names only. No participant membership or latest-room proof. Do not send to an approximate match without owner confirmation.'}
+
+    def send_once(self, recipient: str, text: str, *, request_id=None):
+        if not recipient.strip() or not text.strip() or len(text) > 2000:
+            raise ValueError('invalid direct message')
         state = {"room": recipient, "members": None, "until": (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()}
+        journal = self.path.with_name('kakao-direct-send.json')
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = journal.with_suffix('.lock')
         try:
-            self.chat(state)
-        except ValueError as error:
-            raise KakaoRecipientUnavailable("recipient needs a general lookup") from error
-        self.send_text(state, text, check_enabled=False)
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            raise ValueError('previous direct send locked; outcome uncertain') from None
+        os.close(fd)
+        try:
+            previous = json.loads(journal.read_text()) if journal.exists() else {}
+            if previous.get('status') == 'pending':
+                raise ValueError('previous direct send uncertain; owner review required')
+            digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, text], ensure_ascii=False).encode()).hexdigest()
+            completed = previous.get('completed', [])[-255:]
+            if digest in completed:
+                raise ValueError('already sent in this owner request; no automatic repeat')
+            try:
+                if recipient in {'나', '나 자신', '나와의 채팅', 'self'}:
+                    # Self is not indexed as a normal friend in global search.
+                    # Prove identity through Kakao's native My Chatroom action.
+                    from .kakao_self import KakaoSelf
+                    state['room'] = KakaoSelf(self.control.device, self.path.parent).open_self()
+                else:
+                    self.search_chat(state)
+            except ValueError as error:
+                raise KakaoRecipientUnavailable('exact recipient unavailable; no message entered') from error
+            def record(status):
+                temp = journal.with_suffix('.tmp')
+                with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as stream:
+                    json.dump({'status': status, 'completed': completed + ([digest] if status == 'succeeded' else [])}, stream)
+                    stream.flush(); os.fsync(stream.fileno())
+                temp.replace(journal)
+            record('pending')
+            self.send_text(state, text, check_enabled=False)
+            record('succeeded')
+        finally:
+            lock_path.unlink(missing_ok=True)
 
     def send_text(self, state, text: str, *, check_enabled=True):
         if not text.strip():
@@ -158,6 +332,8 @@ class KakaoWatcher:
         fields = [n for n in observed["nodes"] if n.get("resource") == PREFIX + "message_edit_text"]
         if len(fields) != 1:
             raise ValueError("ambiguous Kakao input")
+        if fields[0].get('text', '').strip():
+            raise ValueError('existing message draft; no overwrite or send')
         self.control.input(observed["snapshot"], fields[0]["id"], text=text)
         guard()
         observed = self.control.observe()
@@ -173,3 +349,24 @@ class KakaoWatcher:
             if any(not m["incoming"] and m["text"] == text for m in appended):
                 return
         raise RuntimeError("send result is uncertain; do not retry automatically")
+
+
+def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candidates=None):
+    from .loop import Tool
+    watcher = KakaoWatcher(device, Path(data_path) / 'kakao-watch.json')
+    trusted_id = request_id or uuid.uuid4().hex
+    def send(args):
+        try:
+            watcher.send_once(args['recipient'], args['text'], request_id=trusted_id)
+        except KakaoRecipientUnavailable:
+            return 'KAKAO_RECIPIENT_REQUIRED'
+        return 'KAKAO_SENT'
+    def find(args):
+        result = watcher.find_candidates(args['query'])
+        if notify_candidates and result['candidates']:
+            notify_candidates('카톡 수신자 후보입니다. 아직 전송하지 않았습니다. 정확한 이름으로 다시 요청해 주세요.\n' + '\n'.join(f"{i+1}. {c['name']}" for i, c in enumerate(result['candidates'])))
+        return json.dumps(result, ensure_ascii=False)
+    return [Tool('kakao_send', 'Search exact recipient in native Kakao search, verify individual chat, send once and verify new outgoing bubble. Use instead of manual Android steps. Approximate names require owner confirmation first. Status only.',
+        {'type': 'object', 'properties': {'recipient': {'type': 'string', 'minLength': 1, 'maxLength': 30}, 'text': {'type': 'string', 'minLength': 1, 'maxLength': 2000}}, 'required': ['recipient', 'text'], 'additionalProperties': False}, send, needs_approval=True),
+        Tool('kakao_find_recipient', 'Read-only native search for exact names or typo candidates. Returns at most 3 names, never sends. Does NOT prove membership or most-recent-room selection. Approximate matches require owner confirmation.',
+        {'type': 'object', 'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 30}}, 'required': ['query'], 'additionalProperties': False}, find)]

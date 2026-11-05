@@ -33,9 +33,14 @@ class KakaoSelf:
     def open_self(self):
         """Navigate using fresh labels; return a private verified title internally."""
         self.control.device.open('kakao')
-        for _ in range(8):
+        for _ in range(16):
             observation = self.control.observe()
             nodes = observation['nodes']
+            if any(n.get('resource') == 'com.kakao.talk.finder:id/input_focus' for n in nodes):
+                # Search result profile photos are not proof of self identity.
+                self.control.key('back')
+                self.sleep(.4)
+                continue
             if any(n.get('package') for n in nodes) and not any(n.get('package') == 'com.kakao.talk' for n in nodes):
                 # Cold app startup can still show the launcher. Back would
                 # cancel startup, so wait for the app within the bounded loop.

@@ -29,7 +29,7 @@ from .loop import Tool
 
 log = logging.getLogger(__name__)
 READ_TOOLS = frozenset({
-    "memory_search", "schedule_list", "web_search", "web_fetch", "mail_list",
+    "memory_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
     "mail_read", "route_search", "map_search", "android_screen", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
 ROUTINE_ANDROID = frozenset({"android_open", "android_click", "android_input", "android_swipe", "android_key"})
@@ -158,6 +158,7 @@ def build_runtime(data: Path, env) -> ToolBridge:
     from .n8n_tools import build_n8n_tools
     from .device_nodes import build_device_tools
     from .kakao_self import build_kakao_self_tools
+    from .kakao_watch import build_kakao_send_tools
     from .recipes import RecipeExecutor, build_recipe_tools
 
     mode = env.get("DAEVIS_MCP_APPROVAL", "deny")
@@ -191,6 +192,7 @@ def build_runtime(data: Path, env) -> ToolBridge:
     tools = build_tools(memory, data / "schedule.json", env) + build_android_tools(android)
     tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)
     tools += build_kakao_self_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'))
+    tools += build_kakao_send_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'), notify_candidates=notify if mode == 'discord' else None)
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]
     if env.get("DISCORD_BOT_TOKEN"):
         tools.append(build_discord_user_tool(gate, browser, env["DISCORD_BOT_TOKEN"]))
