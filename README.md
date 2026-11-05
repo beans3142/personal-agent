@@ -75,7 +75,7 @@ flowchart LR
 | 반복 제한 | `deploy/hermes_policy.py` | 입력 토큰 6만 초과, 같은 오류 3회 반복, 소유자 거절 시 즉시 멈춤 |
 | MCP 서버 | `agent/mcp_server.py` `deploy/run-mcp.sh` | 도구 목록 공개 범위와 승인 판단, 실제 도구 실행 |
 | 전원 봇 | `agent/power_bot.py` `agent/power.py` | 정확한 전원 문구만 받아 EC2를 켜고 끔 |
-| 로그인 | `agent/authgate.py` `agent/login_portal.py` | 사람이 한 번 로그인한 세션을 저장해 두고 재사용 |
+| 로그인 | `agent/authgate.py` `agent/login_portal.py` | 저장된 브라우저 세션을 먼저 확인하고, 세션이 없을 때만 로그인을 시도. 실패하면 멈춘 상태를 기록해 반복하지 않음 |
 | Android | `agent/android_control.py` `agent/kakao_watch.py` | 화면 트리 읽기, 확인 후 한 번만 누르기, 카톡 전송 검증 |
 
 ## 요청 하나가 처리되는 순서
@@ -154,6 +154,6 @@ python -m pytest tests -q
 
 - 토큰, 로그인 세션, 기억, 대화 기록은 `data/`와 `.env`에만 두며 Git에 올리지 않는다.
 - 소유자 한 명의 메시지만 처리한다. 다른 사람이 같은 서버에서 봇을 불러도 반응하지 않는다.
-- 비밀번호 로그인과 2단계 인증은 사람이 직접 하고, Agent는 저장된 세션만 쓴다.
+- 로그인은 저장된 세션을 먼저 쓴다. 계정 정보는 서버 `.env`에만 있고, 휴대폰 본인 인증과 계정 보호조치 해제는 사람이 직접 한다.
 - MCP 서버는 stdio로만 연결되고 외부 포트를 열지 않는다. 브라우저 디버깅 포트와 n8n은 `127.0.0.1`에만 묶여 있다.
 - 웹 도구는 사설 주소와 클라우드 메타데이터 주소에 접속하지 않는다.
