@@ -215,6 +215,23 @@ def test_existing_identical_bubble_does_not_confirm_noop_send(tmp_path):
         watch.send_text(state,'hello')
 
 
+def test_post_send_transient_toolbar_does_not_resend_or_report_failure(tmp_path, monkeypatch):
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    clicked = []
+    after = [screen(room='redrawing'), screen(messages=[(False, 'old'), (False, 'hello')])]
+    def dump():
+        return after.pop(0) if clicked and after else screen(messages=[(False, 'old')])
+    observed = []
+    def observe():
+        observed.append(1)
+        return {'snapshot': 's', 'nodes': [{'id': 1, 'resource': 'com.kakao.talk:id/message_edit_text'}] if len(observed) == 1 else [{'id': 2, 'description': 'Send'}]}
+    watch.control = SimpleNamespace(device=SimpleNamespace(dump_hierarchy=dump), observe=observe,
+        input=lambda *a, **kw: None, click=lambda *a: clicked.append(1))
+    monkeypatch.setattr('agent.kakao_watch.time.sleep', lambda _: None)
+    watch.send_text({'room': 'room', 'members': 5, 'until': '2099-01-01T00:00:00+00:00'}, 'hello', check_enabled=False)
+    assert clicked == [1] and after == []
+
+
 def test_verified_unsent_recovery_backlog_is_processed(tmp_path):
     watch=KakaoWatcher(None,tmp_path/'watch.json')
     old={'incoming':False,'text':'previous reply'}; waiting={'incoming':True,'text':'unanswered'}

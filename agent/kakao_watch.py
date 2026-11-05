@@ -309,7 +309,7 @@ class KakaoWatcher:
             def record(status):
                 temp = journal.with_suffix('.tmp')
                 with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as stream:
-                    json.dump({'status': status, 'completed': completed + ([digest] if status == 'succeeded' else [])}, stream)
+                    json.dump({'status': status, 'request_hash': digest, 'completed': completed + ([digest] if status == 'succeeded' else [])}, stream)
                     stream.flush(); os.fsync(stream.fileno())
                 temp.replace(journal)
             record('pending')
@@ -343,8 +343,14 @@ class KakaoWatcher:
         with self._lock:
             before = guard()
             self.control.click(observed["snapshot"], buttons[0]["id"], buttons[0].get("text") or buttons[0].get("description", ""))
-        for _ in range(3):
-            messages = read_chat(self.control.device.dump_hierarchy(), state["room"], state["members"])
+        for _ in range(20):
+            # Native toolbar can disappear during the post-send redraw. This
+            # loop only observes: it never clicks Send again or enters text.
+            time.sleep(.25)
+            try:
+                messages = read_chat(self.control.device.dump_hierarchy(), state["room"], state["members"])
+            except ValueError:
+                continue
             appended = appended_messages(before, messages) if before else messages
             if any(not m["incoming"] and m["text"] == text for m in appended):
                 return
