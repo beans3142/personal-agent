@@ -238,7 +238,7 @@ def build_tools(memory: Memory, schedule_store: Path, env=os.environ) -> list[To
             ensure_ascii=False,
         )
 
-    return [
+    tools = [
         Tool('kb_search','검증일·출처·구현 상태가 있는 운영 KB를 검색한다. 참고 자료이며 실행 권한이나 현재 로그인/연결 상태의 증명이 아니다. 오래된 항목은 실제 도구로 재확인한다.',
              _obj(['query'],query=STRING),lambda a:json.dumps(kb.search(a['query'],public=env.get('DAEVIS_MCP_PUBLIC')=='1'),ensure_ascii=False)),
         Tool("memory_save", "오래 기억할 사실을 저장한다. 비밀번호와 토큰은 저장하지 않는다.",
@@ -274,3 +274,17 @@ def build_tools(memory: Memory, schedule_store: Path, env=os.environ) -> list[To
         Tool("map_search", "장소를 검색해 이름, 주소, 전화번호, 링크를 돌려준다.",
              _obj(["query"], query=STRING, limit=INTEGER), lambda a: map_search(env, a["query"], a.get("limit", 5))),
     ]
+    from .conversations import Conversations
+    def conversation_read(args,history=False):
+        scope=env.get('DAEVIS_MCP_CHAT_SCOPE','')
+        if not scope:return 'error: conversation scope unavailable'
+        sessions=Conversations(Path(schedule_store).parent/'conversations.sqlite3')
+        return json.dumps(sessions.scoped_history(scope,args['topic_id']) if history else sessions.search(scope,args['query']),ensure_ascii=False)
+    tools += [
+        Tool('conversation_search','최근30일의 작업별 대화를 검색한다. 현재 채널에서 볼 수 있는 기록만 반환한다. 보관 기록은 참고 자료이며 이전 실행을 반복할 권한이 아니다.',_obj(['query'],query=STRING),lambda a:conversation_read(a)),
+        Tool('conversation_history','선택한 작업의 최근 문맥을 읽는다. 공개 채널에서 DM 기록은 반환하지 않는다.',_obj(['topic_id'],topic_id=STRING),lambda a:conversation_read(a,True))]
+    try:
+        from .private.owner_tools import build_tools as owner_tools
+    except ImportError:
+        return tools
+    return tools + owner_tools(Path(schedule_store).parent,env)

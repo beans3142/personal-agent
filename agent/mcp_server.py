@@ -29,6 +29,7 @@ from .loop import Tool
 
 log = logging.getLogger(__name__)
 READ_TOOLS = frozenset({
+    'conversation_search','conversation_history',
     "memory_search", "kb_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
     "mail_read", "route_search", "map_search", "android_screen", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
@@ -176,6 +177,8 @@ def build_runtime(data: Path, env) -> ToolBridge:
         if env.get("DAEVIS_MCP_OWNER_REQUEST"):
             if not owner_request_active(env):
                 return False
+            if name=='owner_control':
+                return True  # Bounded controls recheck this owner lease in their handler.
             if name in ROUTINE_ANDROID and "button" not in args:
                 return True
             if name == 'auth_ensure' and args == {'site': 'naver'} and login_permission.enabled('naver'):

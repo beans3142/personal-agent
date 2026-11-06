@@ -53,3 +53,10 @@ def test_quick_lane_can_be_disabled():
     web = FakeWeb("DIRECT: x")
     assert QuickLane(web, enabled=False).try_answer("1+1은?") is None
     assert web.asked == []
+
+
+def test_subscription_intent_and_operational_followup_never_fake_completion():
+    web=FakeWeb('DIRECT: 설정했어요.');lane=QuickLane(web)
+    assert lane.try_answer('주간 트렌드만 받고 싶어') is None
+    assert lane.try_answer('그 둘 중 하나만 빼자',history=[{'role':'user','content':'보고서 수신 설정'}]) is None
+    assert not web.asked

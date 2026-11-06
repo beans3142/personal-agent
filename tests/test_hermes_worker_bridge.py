@@ -21,6 +21,20 @@ def test_worker_forwards_request_id_but_not_unrelated_credentials():
         'DAEVIS_MCP_REQUEST_ID': 'trusted'}
 
 
+def test_power_ack_receipt_never_claims_physical_execution():
+    worker=worker_module()
+    receipt=worker.owner_control_receipt('mcp__daevis__owner_control',{'action':'pc_shutdown'},{'status':'completed'})
+    assert receipt['accepted'] and receipt['execution_confirmed'] is False
+    from agent.hermes_runner import control_status
+    assert '아직 확인하지' in control_status([receipt])
+    assert worker.owner_control_receipt('other',{'action':'pc_shutdown'},{'status':'queued'}) is None
+    value=worker.unwrap_tool_value({'result':{'content':[{'type':'text','text':'{"status":"queued"}'}]}})
+    assert value=={'status':'queued'}
+    assert worker.unwrap_tool_value({'isError':True,'content':[{'type':'text','text':'{"status":"queued"}'}]}) is None
+    settings=worker.owner_control_receipt('mcp__daevis__owner_control',{'action':'preferences','changes':{'jobs':True}},{'preferences':{'jobs':True,'tech':False}})
+    assert control_status([settings])=='수신 설정 — 채용 공고: 켜짐'
+
+
 def test_self_receipt_requires_exact_native_confirmation_and_hides_body():
     worker = worker_module()
     assert worker.self_send_receipt('mcp__daevis__kakao_self_send', 'KAKAO_SENT') == {

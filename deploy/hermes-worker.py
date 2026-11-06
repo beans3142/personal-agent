@@ -16,7 +16,7 @@ def emit(value):
 def forwarded_env(env):
     return {key: env[key] for key in (
         'DAEVIS_MCP_PUBLIC', 'DAEVIS_MCP_OWNER_REQUEST', 'DAEVIS_MCP_REQUEST_ID',
-        'DAEVIS_MCP_REQUEST_EXPIRES', 'DAEVIS_MCP_READ_ONLY', 'DAEVIS_MCP_ALLOW_TOOLS',
+        'DAEVIS_MCP_REQUEST_EXPIRES', 'DAEVIS_MCP_READ_ONLY', 'DAEVIS_MCP_ALLOW_TOOLS','DAEVIS_MCP_CURRENT_TEXT','DAEVIS_MCP_CHAT_SCOPE',
         'DAEVIS_MCP_APPROVAL', 'AGENT_OUTBOX') if key in env}
 
 
@@ -24,6 +24,33 @@ def self_send_receipt(name, value):
     if name == 'mcp__daevis__kakao_self_send' and value == 'KAKAO_SENT':
         return {'tool': name, 'confirmed': True, 'recipient_is_self': True}
     return None
+
+
+def owner_control_receipt(name,args,value):
+    if name!='mcp__daevis__owner_control' or not isinstance(value,dict):return None
+    action=args.get('action')
+    if action=='preferences' and isinstance(value.get('preferences'),dict):
+        values=value['preferences']
+        if values and all(k in ('trend_daily','trend_weekly','tech','jobs','events') and type(v) is bool for k,v in values.items()):
+            return {'tool':name,'action':action,'preferences':values,'changed':list((args.get('changes') or {}).keys())}
+    if action not in ('pc_shutdown','pc_cancel','pc_wake','server_stop'):return None
+    if value.get('status') not in ('queued','dispatched','completed','scheduled') and value.get('packet_sent') is not True:return None
+    return {'tool':name,'action':action,'accepted':True,'execution_confirmed':False}
+
+
+def unwrap_tool_value(value):
+    for _ in range(8):
+        if isinstance(value,str):
+            try:value=json.loads(value)
+            except ValueError:break
+        elif isinstance(value,dict) and value.get('isError'):return None
+        elif isinstance(value,dict) and 'result' in value:value=value['result']
+        elif isinstance(value,dict) and isinstance(value.get('content'),list) and len(value['content'])==1:
+            block=value['content'][0]
+            if not isinstance(block,dict) or block.get('type')!='text':break
+            value=block.get('text','')
+        else:break
+    return value
 
 def main():
     project = Path(__file__).resolve().parent.parent
@@ -34,6 +61,7 @@ def main():
     calls = [0]
     kakao = [False]
     receipts=[]
+    control_complete=[False]
     from hermes_policy import TurnGuard, model_failure_reason
     guard=TurnGuard()
     active=[None]
@@ -50,14 +78,7 @@ def main():
         kakao[0] = kakao[0] or 'kakao' in name.lower() or 'com.kakao.talk' in rendered or 'kakao' in rendered.lower()
         emit({'type':'tool','name':name,'kakao_used':kakao[0]})
         interrupt(guard.observe_tool(name,result))
-        value=result
-        for _ in range(5):
-            if isinstance(value,str):
-                try: value=json.loads(value)
-                except ValueError: break
-            elif isinstance(value,dict) and 'result' in value:
-                value=value['result']
-            else: break
+        value=unwrap_tool_value(result)
         if name=='mcp__daevis__route_search' and isinstance(value,dict) and value.get('source')=='네이버 지도' and value.get('routes'):
             receipts.append({'tool':name,'confirmed':True,'origin':args.get('origin'),'destination':args.get('destination'),'depart_at':args.get('depart_at')})
         if name=='mcp__daevis__mail_send' and isinstance(value,str) and value.startswith('sent from '):
@@ -67,6 +88,11 @@ def main():
         self_receipt = self_send_receipt(name, value)
         if self_receipt:
             receipts.append(self_receipt)
+        control_receipt=owner_control_receipt(name,args,value)
+        if control_receipt:
+            receipts.append(control_receipt)
+            if control_receipt.get('action')=='server_stop':
+                control_complete[0]=True;interrupt('owner_control_complete')
     with contextlib.redirect_stdout(sys.stderr):
         from run_agent import AIAgent
         from hermes_cli.auth_codex import resolve_codex_runtime_credentials
@@ -88,8 +114,8 @@ def main():
         active[0]=agent
         response = agent.run_conversation(payload['text'],system_message=payload['instructions'],
                                           conversation_history=payload.get('history') or None)
-    reason=guard.before_step(0) or model_failure_reason(response)
-    emit({'type':'result','completed':bool(response.get('completed')) and reason is None,'stop_reason':reason,
+    reason=None if control_complete[0] else guard.before_step(0) or model_failure_reason(response)
+    emit({'type':'result','completed':(control_complete[0] or bool(response.get('completed'))) and reason is None,'stop_reason':reason,
           'text':response.get('final_response',''),'kakao_used':kakao[0],
           'input_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_input_tokens',None),
           'output_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_output_tokens',None),

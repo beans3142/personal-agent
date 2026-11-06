@@ -45,6 +45,9 @@ class PowerBot(discord.Client):
     async def setup_hook(self):
         from .pc_discord import PCHomeView
         self.add_view(PCHomeView(self))
+        if getattr(self,'control_store',None):
+            from .brief_controls import BriefHomeView
+            self.add_view(BriefHomeView(self))
 
     async def on_message(self, message: discord.Message):
         if message.author.id != self.owner_id or message.author.bot:
@@ -55,6 +58,16 @@ class PowerBot(discord.Client):
                 return
             text = re.sub(rf"<@!?{self.user.id}>", "", text).strip()
         pc_command = parse_pc_command(text)
+        if text in ('브리핑 설정','보고서 설정','브리핑 웹 설정') and getattr(self,'control_store',None):
+            from .brief_controls import BriefView
+            if text=='브리핑 웹 설정':
+                from .owner_controls import BASE
+                dm=await (await self.fetch_user(self.owner_id)).create_dm()
+                await dm.send('보고서 수신 설정 로그인 링크입니다. 15분간 한 번 사용할 수 있어요.\n'+BASE+'/briefing/#'+self.control_store.issue_login())
+                if message.guild:await message.channel.send('본인 DM으로 웹 설정 링크를 보냈어요.')
+            else:
+                view=BriefView(self);await message.channel.send(view.content(),view=view)
+            return
         if pc_command and getattr(self,'pc_registry',None):
             try:
                 await self.handle_pc(message, *pc_command)
@@ -165,7 +178,14 @@ def main() -> None:
     from http.server import ThreadingHTTPServer
     from threading import Thread
     bot.pc_registry=PCRegistry(Path('data/pc-control.sqlite3'))
-    relay=ThreadingHTTPServer(('127.0.0.1',8792),pc_handler(bot.pc_registry,Path('public')))
+    handler=pc_handler(bot.pc_registry,Path('public'))
+    config=Path('data/owner-control.json')
+    if config.exists():
+        import json
+        from .owner_controls import ControlStore,control_handler
+        bot.control_store=ControlStore('data/owner-control.sqlite3')
+        handler=control_handler(handler,bot.control_store,bot,json.loads(config.read_text())['digest'])
+    relay=ThreadingHTTPServer(('127.0.0.1',8792),handler)
     Thread(target=relay.serve_forever,daemon=True).start()
     bot.run(token, log_handler=None)
 

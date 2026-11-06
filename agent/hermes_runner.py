@@ -35,6 +35,22 @@ class HermesResult:
         return f"-# 처리 {elapsed:.1f}초 · {tokens} · 모델 호출 {calls} · 도구 {self.tool_calls}회 · 모델 {self.model} · Hermes"
 
 
+def control_status(receipts):
+    messages={'pc_shutdown':'PC 종료 요청을 접수했어요. 기기에서 받으면 60초 대기하며, 실제 종료는 아직 확인하지 않았어요.',
+        'pc_cancel':'PC 종료 취소 요청을 접수했어요. 기기에서 취소됐는지는 아직 확인하지 않았어요.',
+        'pc_wake':'PC 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인하지 않았어요.',
+        'server_stop':'30초 뒤 비서 서버 종료를 요청했어요. 사용자 PC를 끄는 요청과는 별개입니다.'}
+    actions=list(dict.fromkeys(r.get('action') for r in receipts if r.get('tool')=='mcp__daevis__owner_control' and r.get('accepted')))
+    output=[messages[a] for a in actions if a in messages]
+    settings=[r for r in receipts if r.get('tool')=='mcp__daevis__owner_control' and r.get('action')=='preferences' and isinstance(r.get('preferences'),dict)]
+    if settings:
+        labels={'trend_daily':'일간 트렌드','trend_weekly':'주간 트렌드','tech':'기술 블로그','jobs':'채용 공고','events':'행사'}
+        changed=list(dict.fromkeys(k for r in settings for k in r.get('changed',[]) if k in labels))
+        latest=settings[-1]['preferences'];keys=changed or [k for k in labels if k in latest]
+        output.append('수신 설정 — '+' · '.join(labels[k]+': '+('켜짐' if latest[k] else '꺼짐') for k in keys if k in latest))
+    return '\n'.join(output) or None
+
+
 def parse_events(raw: str) -> HermesResult:
     kakao = False
     final = None
@@ -110,20 +126,23 @@ def run_process(argv, *, input, timeout, **kwargs):
 
 
 class HermesRunner:
+    supports_chat_scope=True
     def __init__(self, python: str, worker: str, *, data: Path, env=None, run=run_process):
         self.python, self.worker, self.data = python, worker, Path(data)
         self.env = dict(os.environ if env is None else env)
         self.execute = run
 
-    def run(self, text, instructions, history, public=False, owner_request=True):
+    def run(self, text, instructions, history, public=False, owner_request=True,chat_scope=None):
         from .artifacts import current_outbox
         env = {**self.env, "DAEVIS_MCP_PUBLIC": "1" if public else "0",
                "DAEVIS_MCP_OWNER_REQUEST": self.env.get("OWNER_ID", "") if owner_request else "",
                "DAEVIS_MCP_READ_ONLY": "0" if owner_request else "1",
                "DAEVIS_MCP_REQUEST_ID": uuid.uuid4().hex,
+               "DAEVIS_MCP_CURRENT_TEXT":text[:1800],
+               "DAEVIS_MCP_CHAT_SCOPE":chat_scope or '',
                "DAEVIS_MCP_REQUEST_EXPIRES": str(time.time()+175)}
         env['AGENT_OUTBOX']=str(current_outbox(self.data/'outbox'))
-        payload = {"text":text, "instructions":instructions, "history":history[-6:]}
+        payload = {"text":text, "instructions":instructions, "history":history[-12:]}
         try:
             output = self.execute([self.python,self.worker], input=json.dumps(payload,ensure_ascii=False),
                                   text=True, encoding="utf-8", env=env, timeout=180, start_new_session=True)
