@@ -13,10 +13,10 @@
 | 요청 | 이슈 | 상태 |
 | --- | --- | --- |
 | 보고서 5종 분리, 쉬운 설명, 주간 기술 연결 | [#1](https://github.com/beans3142/personal-agent/issues/1) | 배포·검증 완료 |
-| 채용·행사 출처 검증, 반복·변경 표시 | [#2](https://github.com/beans3142/personal-agent/issues/2) | 대기. 기본 반복 표시는 반영 |
-| 웹·Discord 버튼·채팅 공통 수신 설정 | [#3](https://github.com/beans3142/personal-agent/issues/3) | 로컬 초안, 미배포 |
-| 30일 보관과 작업별 대화 연결 | [#4](https://github.com/beans3142/personal-agent/issues/4) | 미착수 |
-| 자연어 추론 후 PC·서버 작업 실행 | [#5](https://github.com/beans3142/personal-agent/issues/5) | 도구 초안, 미배포 |
+| 채용·행사 출처 검증, 반복·변경 표시 | [#2](https://github.com/beans3142/personal-agent/issues/2) | 수집·표시 배포. 미확인 자료는 표시 유지 |
+| 웹·Discord 버튼·채팅 공통 수신 설정 | [#3](https://github.com/beans3142/personal-agent/issues/3) | 배포·검증 완료 |
+| 30일 보관과 작업별 대화 연결 | [#4](https://github.com/beans3142/personal-agent/issues/4) | 배포·문맥 연결 검증 완료 |
+| 자연어 추론 후 PC·서버 작업 실행 | [#5](https://github.com/beans3142/personal-agent/issues/5) | 배포·대역 시험 완료. 물리 전원 시험 제외 |
 
 ## 바로잡은 방향
 
@@ -30,3 +30,8 @@
 - 실제 브라우저의 데스크톱·모바일22건에서 정상 응답, 가로 넘침 없음, 기록 검색과 이전 링크 확인.
 - 배포 파일25개의 해시 일치 확인.
 - 채용 다방면 재조사, 수신 설정, 대화 연결, 자연어 실행은 이번 완료 범위에 포함하지 않았다.
+
+
+## 후속 구현 결과
+
+2~5번 구현과 운영 반영은 [상세 작업 일지](2026-11-06-source-settings-conversations.md)에 기록했다. 채용 자료의 모든 개별 교차 검증과 실제 장비의 물리 전원 시험을 완료했다는 뜻은 아니다. 본체 유휴 종료 뒤 다시 기동해 배포 소스5개 일치와 서비스 실행을 확인했다. 웹 수신 설정은 본체가 꺼져 있을 때도 접근되는 것을 확인했다.
