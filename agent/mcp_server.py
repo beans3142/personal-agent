@@ -29,7 +29,7 @@ from .loop import Tool
 
 log = logging.getLogger(__name__)
 READ_TOOLS = frozenset({
-    "memory_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
+    "memory_search", "kb_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
     "mail_read", "route_search", "map_search", "android_screen", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
 ROUTINE_ANDROID = frozenset({"android_open", "android_click", "android_input", "android_swipe", "android_key"})
