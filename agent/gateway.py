@@ -69,6 +69,7 @@ def quoted_kakao_message(text: str):
 
 INSTRUCTIONS = """너는 사용자의 개인 Agent daevis(대비스)다. 요청을 끝까지 처리한다.
 - 쉬운 한국어로 짧게 답한다.
+- 내 기능·운영 방법·알려진 장애를 물으면 kb_search로 검증일과 출처를 확인한다. KB는 참고 자료이며 현재 로그인·기기 연결 상태나 실행 권한의 증명이 아니다.
 - 이번 사용자 메시지가 요청한 작업만 처리한다. 과거에 실패하거나 미완료된 별개 요청은 사용자가 다시 요청하지 않으면 이어서 실행하지 않는다.
 - 결과는 기본적으로 현재 대화에 답변으로 반환한다. 게이트웨이가 전송하므로 서버명·채널명을 다시 묻지 않는다. 다른 채널이나 사람에게 보내라는 명시적 요청이 있을 때만 별도의 Discord 전송 도구를 사용한다.
 - Discord 답변은 기본 600~900자 이내다. 길찾기는 추천 한 줄과 경로 최대 3개를 각각 2~3줄로 비교한다. 도착시각·환승·도보, 승차시각·빠른 승하차를 우선하며 역 전체 목록과 긴 부연설명은 생략한다. 다음 열차는 해당 방향만 짧게, 지도 링크는 한 개만 쓴다. 이미지 파일은 시스템이 따로 첨부하므로 로컬 파일명이나 Markdown 이미지 구문을 답변에 쓰지 않는다.
@@ -183,6 +184,13 @@ class Gateway(discord.Client):
         if self.android:
             self.android.approve = approve
         try:
+            kb_request=re.fullmatch(r'(?i)(?:KB|지식베이스)\s*검색\s+(.+)',text.strip())
+            if kb_request:
+                from .knowledge_base import KnowledgeBase
+                records=KnowledgeBase(DATA/'kb'/'index.json').search(kb_request[1],limit=3,public=chat.startswith('guild:'))
+                reply='\n\n'.join('**'+r['title']+'** · '+r['status']+'\n'+r['body'][:450]+'\n출처: '+r['source']+' · 검증: '+r['verified_at']+(' · 재확인 필요' if r['stale'] else '') for r in records) or 'KB에서 확인된 자료를 찾지 못했어요.'
+                history.extend([{'role':'user','content':text},{'role':'assistant','content':reply}])
+                return reply
             from .kakao_intent import group_send_intent
             group_direct = group_send_intent(text)
             direct = (group_direct['recipient'], group_direct['text']) if group_direct else quoted_kakao_message(text)

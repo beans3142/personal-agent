@@ -27,7 +27,8 @@ def sample_health(data, env, *, get=httpx.get, run=subprocess.run,
     db=Path(data)/'device-nodes.sqlite3'
     if db.exists():
         from .device_nodes import DeviceStore
+        monitored={name.strip() for name in env.get('DAEVIS_MONITOR_NODES','').split(',') if name.strip()}
         for node in DeviceStore(db).list_nodes():
-            if node.get('enabled') and node.get('last_seen'):
+            if node['name'] in monitored and node.get('enabled') and node.get('last_seen'):
                 samples['node:'+node['name']]=bool(node['online'])
     return samples

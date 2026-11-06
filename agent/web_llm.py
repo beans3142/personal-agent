@@ -1,4 +1,4 @@
-"""Answers simple questions through Gemini on the web so the main model is called only when needed.
+"""Answers standalone knowledge questions through the configured Chat provider.
 
 The web answer is accepted only in an exact "DIRECT: ..." form. Anything else goes to the main model.
 """

@@ -45,5 +45,14 @@ def test_enrolled_online_node_is_included_in_health_samples(tmp_path):
     store=DeviceStore(tmp_path/'device-nodes.sqlite3')
     token=store.enroll('qa-node',[])
     store.poll('qa-node',token)
-    samples=sample_health(tmp_path,{},get=lambda *a,**k:SimpleNamespace(status_code=200),read_memory=lambda:'MemAvailable: 1048576 kB')
+    samples=sample_health(tmp_path,{'DAEVIS_MONITOR_NODES':'qa-node'},get=lambda *a,**k:SimpleNamespace(status_code=200),read_memory=lambda:'MemAvailable: 1048576 kB')
     assert samples.get('node:qa-node') is True
+
+
+def test_optional_pc_offline_is_not_a_server_incident(tmp_path):
+    from agent.device_nodes import DeviceStore
+    s=DeviceStore(tmp_path/'device-nodes.sqlite3');t=s.enroll('pc-green',[]);s.poll('pc-green',t)
+    import sqlite3
+    with sqlite3.connect(s.path) as db:db.execute('UPDATE nodes SET seen=1')
+    samples=sample_health(tmp_path,{},get=lambda *a,**k:SimpleNamespace(status_code=200),read_memory=lambda:'MemAvailable: 1048576 kB')
+    assert 'node:pc-green' not in samples

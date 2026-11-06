@@ -35,7 +35,10 @@ BOOT_POLLS = 36
 
 def power_command(text: str) -> str | None:
     """Only the exact phrases count, so normal requests never toggle the server."""
-    match = POWER_PATTERN.fullmatch((text or "").strip())
+    text=(text or '').strip()
+    match = POWER_PATTERN.fullmatch(text)
+    if not match:
+        match=re.fullmatch(r'(?:(?:'+NAMES+r')\s*)?(?:비서\s*서버|서버|본체)\s*(\S+)',text,re.I)
     return COMMAND_OF.get(match.group(1).lower()) if match else None
 
 

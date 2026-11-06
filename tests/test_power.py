@@ -23,6 +23,11 @@ from agent.power import PowerControl, idle_shutdown_due, power_command
     ("대비스 온도 알려줘", None),
     ("대비스", None),
     ("오늘 날씨", None),
+    ("서버 꺼줘", "off"),
+    ("서버 켜줘", "on"),
+    ("대비스 서버 상태", "status"),
+    ("내 PC 꺼줘", None),
+    ("서버 끄는 법 알려줘", None),
 ])
 def test_power_command_matches_only_exact_phrases(text, expected):
     assert power_command(text) == expected

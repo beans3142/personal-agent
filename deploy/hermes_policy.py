@@ -13,6 +13,17 @@ _ERROR_STATUSES = {'error', 'failed', 'denied', 'uncertain', 'blocked'}
 _METADATA = {'tool_search', 'tool_describe', 'android_screen'}
 
 
+def model_failure_reason(response):
+    if response.get('completed'):return None
+    error=str(response.get('error') or '')+' '+str(response.get('failure_reason') or '')
+    error=error.lower()
+    if any(x in error for x in ('usage_limit_reached','usage limit has been reached','usage limit reached')):
+        return 'usage_limit_reached'
+    if any(x in error for x in ('authentication','unauthorized','token expired')):return 'model_auth_failed'
+    if 'rate limit' in error or 'rate_limit' in error:return 'model_rate_limited'
+    return None
+
+
 def _message(value):
     if isinstance(value, str):
         return value

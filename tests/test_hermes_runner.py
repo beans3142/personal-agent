@@ -20,6 +20,14 @@ def test_missing_or_failed_completion_never_looks_successful():
     with pytest.raises(RuntimeError): parse_events('{"type":"result","completed":false,"text":"not done"}')
 
 
+def test_usage_limit_without_tools_is_explained_without_implying_a_send():
+    from agent.hermes_runner import HermesError
+    with pytest.raises(HermesError) as e:
+        parse_events('{"type":"result","completed":false,"stop_reason":"usage_limit_reached","tool_calls":0,"input_tokens":null,"output_tokens":null}')
+    assert '사용량 한도' in str(e.value)
+    assert '전송 여부' not in str(e.value)
+
+
 def test_runner_uses_stdin_and_process_group_without_shell_and_scopes_public(tmp_path):
     calls=[]
     def run(argv, **kwargs):

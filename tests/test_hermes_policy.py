@@ -118,3 +118,10 @@ def test_guard_retains_message_digest_without_private_error_text():
 def test_invalid_limits_rejected(kwargs):
     with pytest.raises(ValueError):
         guard(**kwargs)
+
+
+def test_model_usage_failure_is_classified_without_echoing_provider_text():
+    spec=importlib.util.spec_from_file_location('hermes_policy',Path(__file__).parents[1]/'deploy/hermes_policy.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    assert module.model_failure_reason({'completed':False,'error':'HTTP429: The usage limit has been reached'})=='usage_limit_reached'
+    assert module.model_failure_reason({'completed':True,'final_response':'usage_limit_reached is an error code'}) is None

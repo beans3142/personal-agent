@@ -52,6 +52,12 @@ def parse_events(raw: str) -> HermesResult:
     if final.get("completed") is not True:
         outcome.text=""
         reason=final.get('stop_reason')
+        if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited'):
+            message={'usage_limit_reached':'모델 사용량 한도에 걸려 답변을 만들지 못했어요.',
+                     'model_auth_failed':'모델 로그인 인증에 실패했어요.',
+                     'model_rate_limited':'모델 요청이 일시적으로 제한됐어요.'}[reason]
+            if outcome.tool_calls:message+=' 실행된 작업이 있을 수 있어 자동 재시도하지 않습니다.'
+            raise HermesError(message,outcome)
         message={'input_token_limit':'입력 토큰 사용 한도에 도달해 작업을 중단했습니다.',
                  'owner_denied':'승인을 받지 못해 작업을 중단했습니다.',
                  'repeated_snapshot_error':'같은 화면 조작 오류가 3회 반복돼 중단했습니다.',

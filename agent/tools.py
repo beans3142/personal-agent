@@ -228,6 +228,8 @@ INTEGER = {"type": "integer"}
 
 
 def build_tools(memory: Memory, schedule_store: Path, env=os.environ) -> list[Tool]:
+    from .knowledge_base import KnowledgeBase
+    kb=KnowledgeBase(Path(schedule_store).parent/'kb'/'index.json')
     def schedule_add(args):
         at = datetime.fromisoformat(args["at"])
         at = at if at.tzinfo else at.astimezone()
@@ -237,6 +239,8 @@ def build_tools(memory: Memory, schedule_store: Path, env=os.environ) -> list[To
         )
 
     return [
+        Tool('kb_search','검증일·출처·구현 상태가 있는 운영 KB를 검색한다. 참고 자료이며 실행 권한이나 현재 로그인/연결 상태의 증명이 아니다. 오래된 항목은 실제 도구로 재확인한다.',
+             _obj(['query'],query=STRING),lambda a:json.dumps(kb.search(a['query'],public=env.get('DAEVIS_MCP_PUBLIC')=='1'),ensure_ascii=False)),
         Tool("memory_save", "오래 기억할 사실을 저장한다. 비밀번호와 토큰은 저장하지 않는다.",
              _obj(["text"], text=STRING), lambda a: f"saved {memory.save(a['text'])}"),
         Tool("memory_search", "저장한 사실을 단어로 찾는다.",

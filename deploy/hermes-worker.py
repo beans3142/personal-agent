@@ -34,7 +34,7 @@ def main():
     calls = [0]
     kakao = [False]
     receipts=[]
-    from hermes_policy import TurnGuard
+    from hermes_policy import TurnGuard, model_failure_reason
     guard=TurnGuard()
     active=[None]
     def interrupt(reason):
@@ -88,11 +88,11 @@ def main():
         active[0]=agent
         response = agent.run_conversation(payload['text'],system_message=payload['instructions'],
                                           conversation_history=payload.get('history') or None)
-    reason=guard.before_step(0)
+    reason=guard.before_step(0) or model_failure_reason(response)
     emit({'type':'result','completed':bool(response.get('completed')) and reason is None,'stop_reason':reason,
           'text':response.get('final_response',''),'kakao_used':kakao[0],
-          'input_tokens':getattr(agent,'session_input_tokens',None),
-          'output_tokens':getattr(agent,'session_output_tokens',None),
+          'input_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_input_tokens',None),
+          'output_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_output_tokens',None),
           'model_calls':response.get('api_calls'),'tool_calls':calls[0],
           'model':str(getattr(agent,'model','미제공'))+' (설정)','receipts':receipts})
 
