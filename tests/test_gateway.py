@@ -328,3 +328,9 @@ def test_managed_pc_receipt_does_not_send_a_second_answer():
     bot.turn=turn
     asyncio.run(Gateway.on_message(bot,message(content='<@9> 작업 끝났으니 데스크톱 전원 내려줘')))
     bot.send_long.assert_not_awaited()
+
+
+def test_food_requests_go_to_baemin_without_asking_the_area():
+    memory = SimpleNamespace(recent=lambda: [])
+    text = instructions_for(memory, public=True)
+    assert "지역을 되묻지 말고 배민" in text and "최대 3곳" in text

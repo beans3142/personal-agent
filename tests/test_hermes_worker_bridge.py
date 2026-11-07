@@ -63,3 +63,17 @@ def test_mcp_launcher_preserves_trusted_request_id_after_loading_env(tmp_path):
                                capture_output=True, text=True, timeout=10)
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == 'trusted-caller-id'
+
+
+def test_kakao_privacy_mode_starts_only_for_kakao_tools_or_kakao_app_screens():
+    worker = worker_module()
+    assert worker.kakao_activity('mcp__daevis__kakao_send', {'recipient': 'x'}, 'KAKAO_SENT')
+    assert worker.kakao_activity('mcp__daevis__android_open', {'app': 'kakao'}, '{}')
+    assert worker.kakao_activity('mcp__daevis__android_screen', {}, '{"nodes":[{"package":"com.kakao.talk"}]}')
+
+
+def test_shop_screens_mentioning_kakao_pay_do_not_hide_the_answer():
+    worker = worker_module()
+    screen = '{"nodes":[{"package":"com.sampleapp","text":"카카오페이 결제","resource":"com.sampleapp:id/kakaopay_logo"}]}'
+    assert not worker.kakao_activity('mcp__daevis__android_click', {'snapshot': 'a', 'index': 3}, screen)
+    assert not worker.kakao_activity('mcp__daevis__web_search', {'query': 'kakao 주가'}, 'KakaoBank result')

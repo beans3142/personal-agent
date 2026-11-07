@@ -41,6 +41,13 @@ def owner_control_receipt(name,args,value):
     return receipt
 
 
+def kakao_activity(name,args,result):
+    # Privacy mode hides the answer, so trigger it only for Kakao tools or
+    # Kakao app screens; shop pages that merely mention Kakao Pay don't count.
+    rendered=json.dumps([args,result],ensure_ascii=False,default=str)
+    return 'kakao' in name.lower() or (isinstance(args,dict) and args.get('app')=='kakao') or 'com.kakao.talk' in rendered
+
+
 def unwrap_tool_value(value):
     for _ in range(8):
         if isinstance(value,str):
@@ -77,8 +84,7 @@ def main():
     def complete(call_id,name,args,result):
         calls[0] += 1
         # Do not export raw tool payloads, passwords or chat contents.
-        rendered = json.dumps([args,result],ensure_ascii=False,default=str)
-        kakao[0] = kakao[0] or 'kakao' in name.lower() or 'com.kakao.talk' in rendered or 'kakao' in rendered.lower()
+        kakao[0] = kakao[0] or kakao_activity(name,args,result)
         emit({'type':'tool','name':name,'kakao_used':kakao[0]})
         interrupt(guard.observe_tool(name,result))
         value=unwrap_tool_value(result)
