@@ -105,6 +105,9 @@ class UiaDevice:
     def swipe(self, direction: str):
         self.device.swipe_ext(direction, scale=0.7)
 
+    def stop(self, package: str):
+        self.device.app_stop(package)
+
     def key(self, key: str):
         self.device.press(key)
 

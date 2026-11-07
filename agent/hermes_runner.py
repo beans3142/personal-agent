@@ -146,12 +146,12 @@ class HermesRunner:
                "DAEVIS_MCP_REQUEST_ID": uuid.uuid4().hex,
                "DAEVIS_MCP_CURRENT_TEXT":text[:1800],
                "DAEVIS_MCP_CHAT_SCOPE":chat_scope or '',
-               "DAEVIS_MCP_REQUEST_EXPIRES": str(time.time()+205)}
+               "DAEVIS_MCP_REQUEST_EXPIRES": str(time.time()+305)}
         env['AGENT_OUTBOX']=str(current_outbox(self.data/'outbox'))
         payload = {"text":text, "instructions":instructions, "history":history[-12:]}
         try:
             output = self.execute([self.python,self.worker], input=json.dumps(payload,ensure_ascii=False),
-                                  text=True, encoding="utf-8", env=env, timeout=210, start_new_session=True)
+                                  text=True, encoding="utf-8", env=env, timeout=310, start_new_session=True)
         except (subprocess.TimeoutExpired, OSError):
             raise HermesError("Hermes 응답 제한 시간 또는 실행 오류입니다. 실행 결과 확인 없이 재전송하지 않습니다.") from None
         if output.returncode:

@@ -13,22 +13,22 @@ import time
 
 log = logging.getLogger(__name__)
 LABELS = {
-    "android_screen": "화면 확인", "android_open": "앱 열기", "android_click": "버튼 누르기",
-    "android_input": "글자 입력", "android_submit": "입력 확정", "android_swipe": "화면 넘기기",
-    "android_key": "뒤로/홈", "android_credential": "로그인 정보 입력",
-    "web_search": "웹 검색", "web_fetch": "웹 페이지 읽기", "map_search": "장소 찾기", "route_search": "경로 찾기",
-    "mail_list": "메일 목록 확인", "mail_read": "메일 읽기", "mail_send": "메일 보내기",
-    "memory_search": "기억 찾기", "memory_save": "기억 저장", "memory_forget": "기억 지우기",
-    "schedule_list": "일정 확인", "schedule_add": "일정 추가", "schedule_remove": "일정 삭제", "schedule_repeat": "반복 일정 설정",
-    "kakao_find_recipient": "카톡 받는 사람 찾기", "kakao_send": "카톡 보내기", "kakao_self_send": "나에게 카톡 보내기",
-    "n8n_list": "자동화 목록 확인", "n8n_run": "자동화 실행", "device_nodes": "기기 확인", "device_jobs": "기기 작업 확인",
-    "device_enqueue": "기기에 작업 보내기", "auth_ensure": "로그인 확인", "owner_control": "설정·기기 제어",
-    "kb_search": "자료 찾기", "conversation_search": "이전 대화 찾기", "conversation_history": "이전 대화 읽기",
-    "plan_execute": "여러 단계 실행", "recipe_list": "작업 순서 확인", "recipe_run": "작업 순서 실행",
-    "career_check": "공고 확인", "career_fit": "공고 적합도 확인", "career_story": "자기소개 소재 정리",
-    "discord_post_as_me": "Discord 글 올리기",
+    "android_screen": "화면 보는 중", "android_open": "앱 여는 중", "android_click": "버튼 누르는 중",
+    "android_input": "글자 입력하는 중", "android_submit": "검색하는 중", "android_swipe": "화면 넘기는 중",
+    "android_key": "이전 화면으로 가는 중", "android_credential": "로그인 정보 입력하는 중",
+    "web_search": "웹 검색하는 중", "web_fetch": "웹 페이지 읽는 중", "map_search": "장소 찾는 중", "route_search": "경로 찾는 중",
+    "mail_list": "메일 확인하는 중", "mail_read": "메일 읽는 중", "mail_send": "메일 보내는 중",
+    "memory_search": "기억 찾는 중", "memory_save": "기억 저장하는 중", "memory_forget": "기억 지우는 중",
+    "schedule_list": "일정 확인하는 중", "schedule_add": "일정 추가하는 중", "schedule_remove": "일정 지우는 중", "schedule_repeat": "반복 일정 설정하는 중",
+    "kakao_find_recipient": "카톡 받는 사람 찾는 중", "kakao_send": "카톡 보내는 중", "kakao_self_send": "나에게 카톡 보내는 중",
+    "n8n_list": "자동화 목록 보는 중", "n8n_run": "자동화 실행하는 중", "device_nodes": "기기 확인하는 중", "device_jobs": "기기 작업 확인하는 중",
+    "device_enqueue": "기기에 작업 보내는 중", "auth_ensure": "로그인 확인하는 중", "owner_control": "기기 제어하는 중",
+    "kb_search": "자료 찾는 중", "conversation_search": "이전 대화 찾는 중", "conversation_history": "이전 대화 읽는 중",
+    "plan_execute": "여러 단계 실행하는 중", "recipe_list": "작업 순서 보는 중", "recipe_run": "작업 순서 실행하는 중",
+    "career_check": "공고 확인하는 중", "career_fit": "공고 적합도 보는 중", "career_story": "자기소개 소재 정리하는 중",
+    "discord_post_as_me": "Discord 글 올리는 중", "baemin_search": "배민에서 가게 메뉴 모으는 중",
 }
-VISIBLE = 6
+APP_NAMES = {"baemin": "배민", "kakao": "카톡", "coupang": "쿠팡"}
 
 
 def _file(outbox):
@@ -64,31 +64,16 @@ def read_steps(outbox):
     return steps
 
 
-def _label(step):
-    label = LABELS.get(step.get("tool"), "작업 진행")
-    return f"{label} ({step['app']})" if step.get("app") else label
-
-
-def render(steps, elapsed):
-    seconds = f"{int(elapsed)}초" if elapsed < 60 else f"{int(elapsed) // 60}분 {int(elapsed) % 60}초"
+def render(steps):
+    """One line about what is happening now, like a typing indicator."""
     if not steps:
-        return f"⏳ 요청을 이해하는 중 · {seconds}"
-    groups = []
-    for step in steps:
-        label = _label(step)
-        if groups and groups[-1][0] == label:
-            groups[-1][1] += 1
-        else:
-            groups.append([label, 1])
-    lines = [f"⏳ 작업 중 · {seconds}"]
-    hidden = len(groups) - VISIBLE
-    if hidden > 0:
-        lines.append(f"✓ 이전 {hidden}단계")
-        groups = groups[hidden:]
-    for index, (label, count) in enumerate(groups):
-        text = label + (f" ×{count}" if count > 1 else "")
-        lines.append(("… " if index == len(groups) - 1 else "✓ ") + text)
-    return "\n".join(lines)
+        return "⏳ 요청을 이해하는 중…"
+    current = steps[-1]
+    text = "⏳ " + LABELS.get(current.get("tool"), "작업하는 중") + "…"
+    app = next((s.get("app") for s in reversed(steps) if s.get("app")), None)
+    if app and str(current.get("tool", "")).startswith("android_"):
+        text += " · " + APP_NAMES.get(app, app)
+    return text
 
 
 def _quiet():
@@ -103,7 +88,7 @@ class ProgressMessage:
         self.message, self.shown = None, None
 
     async def start(self):
-        self.shown = render([], 0)
+        self.shown = render([])
         try:
             self.message = await self.channel.send(self.shown, allowed_mentions=_quiet())
         except Exception:
@@ -113,11 +98,7 @@ class ProgressMessage:
         if self.message is None:
             return
         steps = await asyncio.to_thread(read_steps, self.outbox)
-        text = render(steps, self.clock() - self.started)
-        # Elapsed time alone changes every second; only re-render on new steps
-        # or every 10 seconds, to stay far below Discord's edit rate limit.
-        if text.split("\n", 1)[1:] == self.shown.split("\n", 1)[1:] and int(self.clock() - self.started) % 10:
-            return
+        text = render(steps)
         if text == self.shown:
             return
         try:

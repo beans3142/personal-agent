@@ -13,7 +13,7 @@ _ERROR_STATUSES = {'error', 'failed', 'denied', 'uncertain', 'blocked'}
 _METADATA = {'tool_search', 'tool_describe', 'android_screen'}
 
 
-MAX_ITERATIONS = 20  # A phone search needs ~6 observe/act pairs plus a summary.
+MAX_ITERATIONS = 30  # Five stores at ~3 actions each, plus search and a summary.
 
 
 def model_failure_reason(response, max_iterations=None):
@@ -77,7 +77,7 @@ def _error(result):
 
 
 class TurnGuard:
-    def __init__(self, max_input_tokens=100_000, max_repeated_errors=3):
+    def __init__(self, max_input_tokens=160_000, max_repeated_errors=3):
         if any(type(value) is not int or value <= 0 for value in (max_input_tokens, max_repeated_errors)):
             raise ValueError('guard limits must be positive integers')
         self.max_input_tokens = max_input_tokens

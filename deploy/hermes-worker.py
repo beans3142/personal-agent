@@ -109,14 +109,14 @@ def main():
         payload = json.load(sys.stdin)
         forwarded = forwarded_env(os.environ)
         discovered = register_mcp_servers({'daevis':{'command':'bash','args':[str(project/'deploy/run-mcp.sh')],
-            'timeout':150,'connect_timeout':30,'supports_parallel_tool_calls':False,'env':forwarded}})
+            'timeout':260,'connect_timeout':30,'supports_parallel_tool_calls':False,'env':forwarded}})
         if not discovered:
             raise RuntimeError('daevis MCP tools unavailable')
         emit({'type':'tools','tools':discovered,'public':os.environ.get('DAEVIS_MCP_PUBLIC')=='1'})
         creds = resolve_codex_runtime_credentials()
         agent = AIAgent(provider='openai-codex',api_key=creds['api_key'],base_url=creds['base_url'],
                         model=os.environ.get('AGENT_MODEL','gpt-5.6-luna'), enabled_toolsets=['mcp-daevis'],
-                        max_iterations=MAX_ITERATIONS, max_tokens=1500, run_budget_seconds=150,
+                        max_iterations=MAX_ITERATIONS, max_tokens=1500, run_budget_seconds=270,
                         quiet_mode=True, skip_context_files=True, skip_memory=True,
                         skip_background_review=True, load_soul_identity=False,
                         save_trajectories=False, tool_complete_callback=complete,step_callback=step)

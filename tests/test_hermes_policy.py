@@ -15,8 +15,8 @@ def guard(**kwargs):
 def test_reported_aggregate_threshold_between_calls_and_latched_stop():
     policy = guard()
     assert policy.before_step(0) is None
-    assert policy.before_step(99999) is None
-    assert policy.before_step(100000) == 'input_token_limit'
+    assert policy.before_step(159999) is None
+    assert policy.before_step(160000) == 'input_token_limit'
     assert policy.before_step(100) == 'input_token_limit'
 
 

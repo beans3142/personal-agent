@@ -50,7 +50,7 @@ def test_only_owner_mentions_run_and_results_stay_in_original_channel():
     assert msg.channel.send.await_args.args[0].startswith("⏳")
     assert msg.channel.status.edit.await_args.kwargs["content"] == "private result"
     bot.send_long.assert_not_awaited()
-    bot.send_outbox.assert_awaited_once_with(msg.channel)
+    bot.send_outbox.assert_awaited_once_with(msg.channel, screen=False)
     assert bot.owner_dm.await_count == 0
     assert [call.args[0] for call in msg.add_reaction.await_args_list] == ["⏳", "✅"]
     msg.remove_reaction.assert_awaited_once_with("⏳", bot.user)
@@ -333,4 +333,24 @@ def test_managed_pc_receipt_does_not_send_a_second_answer():
 def test_food_requests_go_to_baemin_without_asking_the_area():
     memory = SimpleNamespace(recent=lambda: [])
     text = instructions_for(memory, public=True)
-    assert "지역을 되묻지 말고 배민" in text and "최대 3곳" in text
+    assert "지역을 되묻지 말고 baemin_search" in text and "최소 10곳" in text
+    assert "일회용 수저" in text and "리뷰 이벤트" in text and "shared_kitchen" in text
+
+
+def test_screenshot_is_attached_only_when_asked():
+    from agent.gateway import wants_screen
+    assert not wants_screen("초밥집 메뉴 정리해줘")
+    assert wants_screen("배민 화면 보여줘")
+    assert wants_screen("결제 화면 캡처해줘")
+
+
+def test_phone_screenshot_is_dropped_but_route_map_kept(tmp_path, monkeypatch):
+    import agent.gateway as gw
+    (tmp_path / "android.png").write_bytes(b"x")
+    (tmp_path / "route-ab-1.png").write_bytes(b"x")
+    monkeypatch.setattr(gw, "current_outbox", lambda default: tmp_path)
+    monkeypatch.setattr(gw.discord, "File", lambda path: SimpleNamespace(close=lambda: None, path=path))
+    channel = Channel(20)
+    asyncio.run(Gateway.send_outbox(SimpleNamespace(), channel))
+    assert channel.send.await_count == 1
+    assert not (tmp_path / "android.png").exists()

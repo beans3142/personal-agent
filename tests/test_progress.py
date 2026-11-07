@@ -18,30 +18,27 @@ def test_record_without_outbox_is_noop():
     record(None, "web_search", {})
 
 
-def test_render_marks_done_and_current_and_merges_repeats():
-    steps = [{"tool": "android_open", "app": "coupang"}, {"tool": "android_screen"}, {"tool": "android_screen"},
-             {"tool": "android_input"}]
-    text = render(steps, 42)
-    assert text.splitlines()[0] == "⏳ 작업 중 · 42초"
-    assert "✓ 앱 열기 (coupang)" in text
-    assert "✓ 화면 확인 ×2" in text
-    assert text.splitlines()[-1] == "… 글자 입력"
+def test_render_shows_only_the_current_step_with_app():
+    steps = [{"tool": "android_open", "app": "baemin"}, {"tool": "android_click"}, {"tool": "android_swipe"}]
+    assert render(steps) == "⏳ 화면 넘기는 중… · 배민"
 
 
 def test_render_without_steps_says_thinking():
-    assert render([], 3) == "⏳ 요청을 이해하는 중 · 3초"
+    assert render([]) == "⏳ 요청을 이해하는 중…"
 
 
-def test_render_keeps_only_recent_steps():
+def test_render_has_no_history_or_timer():
     from agent.progress import LABELS
-    steps = [{"tool": name} for name in list(LABELS)[:12]]
-    text = render(steps, 1)
-    assert "이전 6단계" in text
-    assert len(text.splitlines()) == 8
+    text = render([{"tool": name} for name in list(LABELS)[:12]])
+    assert "\n" not in text and "✓" not in text and "초" not in text
+
+
+def test_app_name_is_shown_only_for_phone_steps():
+    assert render([{"tool": "android_open", "app": "baemin"}, {"tool": "web_search"}]) == "⏳ 웹 검색하는 중…"
 
 
 def test_unknown_tool_has_generic_label():
-    assert "… 작업 진행" in render([{"tool": "mystery"}], 1)
+    assert render([{"tool": "mystery"}]) == "⏳ 작업하는 중…"
 
 
 def channel():
@@ -59,6 +56,7 @@ def test_progress_edits_only_when_text_changes(tmp_path):
         assert status.edit.await_count == 0
         record(tmp_path, "web_search", {})
         await progress.refresh()
+        clock[0] = 30.0  # Time passing alone never triggers an edit.
         await progress.refresh()
         assert status.edit.await_count == 1
         assert "웹 검색" in status.edit.await_args.kwargs["content"]

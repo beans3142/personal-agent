@@ -40,7 +40,7 @@ def test_runner_uses_stdin_and_process_group_without_shell_and_scopes_public(tmp
     assert json.loads(kw["input"])["text"] == 'quotes $(secret)'
     assert kw["env"]["DAEVIS_MCP_PUBLIC"] == "1"
     assert kw["env"]["DAEVIS_MCP_OWNER_REQUEST"] == "123"
-    assert kw["timeout"] <= 210
+    assert kw["timeout"] <= 310
 
 
 def test_worker_error_is_not_exposed(tmp_path):

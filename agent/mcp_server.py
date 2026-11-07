@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 READ_TOOLS = frozenset({
     'conversation_search','conversation_history',
     "memory_search", "kb_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
-    "mail_read", "route_search", "map_search", "android_screen", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
+    "mail_read", "route_search", "map_search", "android_screen", "baemin_search", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
 PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs"})
 DISPATCH_TOOLS = frozenset({"plan_execute", "recipe_run"})
@@ -169,6 +169,8 @@ def build_runtime(data: Path, env) -> ToolBridge:
     android = AndroidControl(UiaDevice(env.get("ANDROID_SERIAL")), env=env, outbox=data / "outbox", approve=approve, observe_after=True)
     tools = build_tools(memory, data / "schedule.json", env) + build_android_tools(android)
     tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)
+    from .baemin import build_baemin_tools
+    tools += build_baemin_tools(android.device)
     tools += build_kakao_self_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'))
     tools += build_kakao_send_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'), notify_candidates=notify if mode == 'discord' else None)
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]
