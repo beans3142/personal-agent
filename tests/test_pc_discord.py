@@ -6,6 +6,39 @@ from agent.pc_control import PCRegistry
 from agent.pc_discord import PCView, PCHomeView
 
 
+def test_clear_mention_shutdown_does_not_ask_again(tmp_path):
+    async def check():
+        from agent.power_bot import PowerBot
+        r=PCRegistry(tmp_path/'pcs.db');r.redeem(r.invite('데스크톱'))
+        bot=SimpleNamespace(owner_id=1,user=SimpleNamespace(id=42),pc_registry=r,handle_pc=AsyncMock())
+        message=SimpleNamespace(author=SimpleNamespace(id=1,bot=False),guild=object(),content='<@42> 대비스 내 데스크탑 꺼줘',channel=SimpleNamespace(send=AsyncMock()))
+        await PowerBot.on_message(bot,message)
+        bot.handle_pc.assert_awaited_once_with(message,'shutdown','내 데스크탑')
+        assert r.resolve(bot.handle_pc.await_args.args[2])['label']=='데스크톱'
+        message.channel.send.assert_not_awaited()
+    asyncio.run(check())
+
+
+def test_shutdown_confirmation_is_one_shot_and_rechecks_connection(tmp_path):
+    async def check():
+        from agent.pc_discord import ShutdownConfirmView
+        r=PCRegistry(tmp_path/'pcs.db');a=r.redeem(r.invite('데스크톱'));r.poll(a['node'],a['token'])
+        bot=SimpleNamespace(owner_id=1,pc_registry=r,handle_pc=AsyncMock())
+        view=ShutdownConfirmView(bot,r.resolve(None))
+        interaction=SimpleNamespace(id=99,response=SimpleNamespace(edit_message=AsyncMock()),followup=SimpleNamespace(send=AsyncMock()))
+        assert [b.label for b in view.children]==['예','아니오']
+        await view.children[0].callback(interaction)
+        await view.children[0].callback(interaction)
+        assert bot.handle_pc.await_count==1
+        view=ShutdownConfirmView(bot,r.resolve(None));r.revoke(a['node'])
+        await view.children[0].callback(interaction)
+        assert bot.handle_pc.await_count==1
+        view=ShutdownConfirmView(bot,r.resolve(None))
+        await view.children[1].callback(interaction)
+        assert bot.handle_pc.await_count==1
+    asyncio.run(check())
+
+
 def test_panel_has_registered_pc_selector_and_specific_power_actions(tmp_path):
     async def check():
         r=PCRegistry(tmp_path/'pcs.db');a=r.redeem(r.invite('데스크톱'));r.poll(a['node'],a['token'])

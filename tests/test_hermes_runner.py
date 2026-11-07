@@ -40,7 +40,7 @@ def test_runner_uses_stdin_and_process_group_without_shell_and_scopes_public(tmp
     assert json.loads(kw["input"])["text"] == 'quotes $(secret)'
     assert kw["env"]["DAEVIS_MCP_PUBLIC"] == "1"
     assert kw["env"]["DAEVIS_MCP_OWNER_REQUEST"] == "123"
-    assert kw["timeout"] <= 180
+    assert kw["timeout"] <= 210
 
 
 def test_worker_error_is_not_exposed(tmp_path):
@@ -70,3 +70,17 @@ def test_each_runner_turn_has_fresh_trusted_request_id(tmp_path):
     runner.run('one', 'system', [])
     runner.run('two', 'system', [])
     assert len(set(seen)) == 2 and all(len(value) == 32 and value != 'old' for value in seen)
+
+
+def test_iteration_limit_keeps_the_summary_instead_of_a_generic_failure():
+    out = parse_events('{"type":"result","completed":false,"stop_reason":"iteration_limit","text":"초밥집 3곳을 찾았어요.","model_calls":20,"tool_calls":21}')
+    assert "초밥집 3곳을 찾았어요." in out.text
+    assert out.text.startswith("⚠️ 단계 한도")
+    assert "전송 여부" not in out.text
+
+
+def test_iteration_limit_without_summary_is_still_a_failure():
+    from agent.hermes_runner import HermesError
+    with pytest.raises(HermesError) as e:
+        parse_events('{"type":"result","completed":false,"stop_reason":"iteration_limit","text":"","model_calls":20}')
+    assert "단계 한도" in str(e.value)

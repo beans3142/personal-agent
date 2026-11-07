@@ -34,8 +34,11 @@ def owner_control_receipt(name,args,value):
         if values and all(k in ('trend_daily','trend_weekly','tech','jobs','events') and type(v) is bool for k,v in values.items()):
             return {'tool':name,'action':action,'preferences':values,'changed':list((args.get('changes') or {}).keys())}
     if action not in ('pc_shutdown','pc_cancel','pc_wake','server_stop'):return None
-    if value.get('status') not in ('queued','dispatched','completed','scheduled') and value.get('packet_sent') is not True:return None
-    return {'tool':name,'action':action,'accepted':True,'execution_confirmed':False}
+    if value.get('status') not in ('queued','dispatched','succeeded','completed','scheduled') and value.get('packet_sent') is not True:return None
+    receipt={'tool':name,'action':action,'accepted':True,'execution_confirmed':False}
+    if action=='pc_shutdown' and value.get('tracking') is True and str(value.get('status_message_id','')).isdigit():
+        receipt.update(tracking=True,status_message_id=str(value['status_message_id']))
+    return receipt
 
 
 def unwrap_tool_value(value):
@@ -62,7 +65,7 @@ def main():
     kakao = [False]
     receipts=[]
     control_complete=[False]
-    from hermes_policy import TurnGuard, model_failure_reason
+    from hermes_policy import MAX_ITERATIONS, TurnGuard, model_failure_reason
     guard=TurnGuard()
     active=[None]
     def interrupt(reason):
@@ -107,14 +110,14 @@ def main():
         creds = resolve_codex_runtime_credentials()
         agent = AIAgent(provider='openai-codex',api_key=creds['api_key'],base_url=creds['base_url'],
                         model=os.environ.get('AGENT_MODEL','gpt-5.6-luna'), enabled_toolsets=['mcp-daevis'],
-                        max_iterations=12, max_tokens=1500, run_budget_seconds=120,
+                        max_iterations=MAX_ITERATIONS, max_tokens=1500, run_budget_seconds=150,
                         quiet_mode=True, skip_context_files=True, skip_memory=True,
                         skip_background_review=True, load_soul_identity=False,
                         save_trajectories=False, tool_complete_callback=complete,step_callback=step)
         active[0]=agent
         response = agent.run_conversation(payload['text'],system_message=payload['instructions'],
                                           conversation_history=payload.get('history') or None)
-    reason=None if control_complete[0] else guard.before_step(0) or model_failure_reason(response)
+    reason=None if control_complete[0] else guard.before_step(0) or model_failure_reason(response, MAX_ITERATIONS)
     emit({'type':'result','completed':(control_complete[0] or bool(response.get('completed'))) and reason is None,'stop_reason':reason,
           'text':response.get('final_response',''),'kakao_used':kakao[0],
           'input_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_input_tokens',None),

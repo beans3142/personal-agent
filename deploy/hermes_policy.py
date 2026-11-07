@@ -13,7 +13,10 @@ _ERROR_STATUSES = {'error', 'failed', 'denied', 'uncertain', 'blocked'}
 _METADATA = {'tool_search', 'tool_describe', 'android_screen'}
 
 
-def model_failure_reason(response):
+MAX_ITERATIONS = 20  # A phone search needs ~6 observe/act pairs plus a summary.
+
+
+def model_failure_reason(response, max_iterations=None):
     if response.get('completed'):return None
     error=str(response.get('error') or '')+' '+str(response.get('failure_reason') or '')
     error=error.lower()
@@ -21,6 +24,8 @@ def model_failure_reason(response):
         return 'usage_limit_reached'
     if any(x in error for x in ('authentication','unauthorized','token expired')):return 'model_auth_failed'
     if 'rate limit' in error or 'rate_limit' in error:return 'model_rate_limited'
+    calls=response.get('api_calls')
+    if max_iterations and type(calls) is int and calls>=max_iterations:return 'iteration_limit'
     return None
 
 
@@ -72,7 +77,7 @@ def _error(result):
 
 
 class TurnGuard:
-    def __init__(self, max_input_tokens=60_000, max_repeated_errors=3):
+    def __init__(self, max_input_tokens=100_000, max_repeated_errors=3):
         if any(type(value) is not int or value <= 0 for value in (max_input_tokens, max_repeated_errors)):
             raise ValueError('guard limits must be positive integers')
         self.max_input_tokens = max_input_tokens

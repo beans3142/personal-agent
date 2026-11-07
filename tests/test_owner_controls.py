@@ -31,6 +31,7 @@ def test_operation_receipt_prevents_repeated_execution_after_restart(tmp_path):
 
 @pytest.mark.parametrize('action,text,expected',[
     ('pc_shutdown','작업 끝났으니 내 컴퓨터 전원 내려줘',True),
+    ('pc_shutdown','등록된 거 하나뿐이잖아 그거 꺼 데스크탑',True),
     ('server_stop','오늘은 여기까지 하자. 비서 서버 종료해줘',True),
     ('pc_shutdown','서버 꺼줘',False),('server_stop','내 PC 꺼줘',False),
     ('pc_shutdown','컴퓨터 끄지 마',False),('server_stop','서버를 끌 수 있어?',False),
@@ -56,13 +57,18 @@ def test_power_dispatch_uses_fake_executor_and_deduplicates_server_stop(tmp_path
     monkeypatch.setattr('threading.Timer',Timer)
     pc={'node':'test-node','label':'데스크톱','is_default':1}
     registry=SimpleNamespace(resolve=lambda _:pc,inventory=lambda:[pc],submit=lambda *a:calls.append(a) or {'status':'queued'})
-    bot=SimpleNamespace(pc_registry=registry,control=SimpleNamespace(stop=lambda:pytest.fail('real stop must never run')))
+    from unittest.mock import AsyncMock
+    bot=SimpleNamespace(pc_registry=registry,control=SimpleNamespace(stop=lambda:pytest.fail('real stop must never run')),confirm_pc_shutdown=AsyncMock(),loop=object())
+    def confirm(coro,loop):
+        coro.close()
+        return SimpleNamespace(result=lambda timeout:{'status':'confirmation_required','executed':False})
+    monkeypatch.setattr('asyncio.run_coroutine_threadsafe',confirm)
     store=ControlStore(tmp_path/'c.sqlite3')
     body={'action':'server_stop','owner_text':'비서 서버 종료해줘','request_id':'req'}
     assert dispatch_control(store,bot,body)['status']=='scheduled'
     dispatch_control(store,bot,body);assert timers==[30]
-    dispatch_control(store,bot,{'action':'pc_shutdown','owner_text':'내 PC 전원 내려줘','request_id':'req'})
-    assert calls[0][1]=='shutdown' and calls[0][2].endswith('pc_shutdown:test-node')
+    result=dispatch_control(store,bot,{'action':'pc_shutdown','owner_text':'내 PC 전원 내려줘','request_id':'req'})
+    assert result['status']=='queued' and calls[0][1]=='shutdown'
     with pytest.raises(ValueError):dispatch_control(store,bot,{'action':'pc_shutdown','owner_text':'PC를 끌 수 있어?','request_id':'req2'})
     assert len(calls)==1
     with pytest.raises(ValueError):dispatch_control(store,bot,{'action':'pc_shutdown','owner_text':'노트북 전원 내려줘','pc':'데스크톱','request_id':'wrong-target'})

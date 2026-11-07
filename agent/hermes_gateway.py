@@ -46,7 +46,7 @@ class HermesGateway(Gateway):
 def main():
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
     memory=Memory(DATA/"agent.db")
-    android=AndroidControl(UiaDevice(os.environ.get("ANDROID_SERIAL")),outbox=DATA/"outbox")
+    android=AndroidControl(UiaDevice(os.environ.get("ANDROID_SERIAL")),outbox=DATA/"outbox",observe_after=True)
     gateway=HermesGateway(int(os.environ["OWNER_ID"]),None,memory,build_tools(memory,DATA/"schedule.json"),DATA/"schedule.json",None,android)
     gateway.engine=HermesRunner(os.environ["HERMES_PYTHON"],str(ROOT/"deploy/hermes-worker.py"),data=DATA)
     from .desktop_text import DesktopText

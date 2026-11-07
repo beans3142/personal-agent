@@ -7,7 +7,7 @@ import pytest
 
 from agent.loop import Tool
 from agent.mcp_server import ToolBridge, create_server
-from agent.mcp_server import DiscordApproval, owner_request_active, scoped_allowlist
+from agent.mcp_server import owner_request_active, scoped_allowlist
 
 
 def sample(name="memory_search", approval=False):
@@ -111,7 +111,8 @@ def test_runtime_delegated_login_runs_image_gate_without_interactive_approval(tm
     result = runtime.call('auth_ensure', {'site': 'naver'})
     assert not result.isError and json.loads(result.content[0].text)['status'] == 'ok'
     assert events == ['crop', 'desktop_chat', ('submit', 'current', '5')]
-    assert not runtime.approve('auth_ensure', {'site': 'google'})
+    assert runtime.approve('auth_ensure', {'site': 'google'})
+    assert not runtime.approve('payment', {'button': '결제하기'})  # deny mode: payment never auto-runs
 
 
 def test_public_scope_cannot_invoke_private_tools_even_via_recipes():
@@ -144,32 +145,6 @@ def test_tool_error_is_reported_as_error():
     assert ToolBridge([tool], {"memory_search"}).call("memory_search", {"text": "ok"}).isError
 
 
-@pytest.mark.parametrize("author,content,expected", [
-    ("123", "승인 abc", True),
-    ("999", "승인 abc", False),
-    ("123", "승인 wrong", False),
-    ("123", "거절 abc", False),
-])
-def test_discord_approval_requires_owner_and_fresh_nonce(monkeypatch, author, content, expected):
-    import httpx
-    monkeypatch.setattr("agent.mcp_server.secrets.token_hex", lambda n: "abc")
-    now = [0]
-    requests = []
-    def handle(request):
-        requests.append(request)
-        if request.url.path.endswith("/users/@me/channels"):
-            return httpx.Response(200, json={"id": "5"})
-        if request.method == "POST":
-            return httpx.Response(200, json={"id": "10"})
-        return httpx.Response(200, json=[{"id": "11", "author": {"id": author}, "content": content}])
-    client = httpx.Client(base_url="https://discord.com/api/v10", transport=httpx.MockTransport(handle))
-    approval = DiscordApproval("test-token", "123", client=client, timeout=1, sleep=lambda n: now.__setitem__(0, now[0] + n), clock=lambda: now[0])
-    assert approval("mail_send", {"body": "hello"}) is expected
-    payload = json.loads(requests[1].content)
-    assert '"body": "hello"' in payload["content"]
-    assert payload["allowed_mentions"] == {"parse": []}
-
-
 def test_approval_api_failure_does_not_execute_tool():
     seen = []
     tool = sample("mail_send")
@@ -197,3 +172,18 @@ def test_actual_stdio_initialize_list_and_call(tmp_path):
                 assert json.loads(result.content[0].text) == []
                 assert (await session.call_tool("memory_save", {"text": "no"})).isError
     asyncio.run(run())
+
+
+def test_progress_is_recorded_only_for_validated_allowed_calls():
+    steps = []
+    bridge = ToolBridge([sample(), sample("hidden")], {"memory_search"}, progress=lambda name, args: steps.append(name))
+    bridge.call("hidden", {"text": "x"})
+    bridge.call("memory_search", {"text": 1})
+    bridge.call("memory_search", {"text": "ok"})
+    assert steps == ["memory_search"]
+
+
+def test_progress_failure_never_blocks_tool():
+    def broken(*_):
+        raise OSError("disk full")
+    assert ToolBridge([sample()], {"memory_search"}, progress=broken).call("memory_search", {"text": "ok"}).content[0].text == "ok"

@@ -68,6 +68,11 @@ def parse_events(raw: str) -> HermesResult:
     if final.get("completed") is not True:
         outcome.text=""
         reason=final.get('stop_reason')
+        if reason=='iteration_limit' and str(final.get('text') or '').strip():
+            # Hermes asked the model to summarise at the cap; that summary is
+            # the most useful answer, so show it instead of a generic failure.
+            outcome.text='⚠️ 단계 한도에 도달해 여기까지 정리했어요.\n\n'+str(final['text']).strip()
+            return outcome
         if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited'):
             message={'usage_limit_reached':'모델 사용량 한도에 걸려 답변을 만들지 못했어요.',
                      'model_auth_failed':'모델 로그인 인증에 실패했어요.',
@@ -77,7 +82,8 @@ def parse_events(raw: str) -> HermesResult:
         message={'input_token_limit':'입력 토큰 사용 한도에 도달해 작업을 중단했습니다.',
                  'owner_denied':'승인을 받지 못해 작업을 중단했습니다.',
                  'repeated_snapshot_error':'같은 화면 조작 오류가 3회 반복돼 중단했습니다.',
-                 'repeated_tool_error':'같은 도구 오류가 3회 반복돼 중단했습니다.'}.get(reason,'작업 단계·시간 제한 또는 도구 오류로 완료하지 못했습니다.')
+                 'repeated_tool_error':'같은 도구 오류가 3회 반복돼 중단했습니다.',
+                 'iteration_limit':'작업 단계 한도에 도달해 정리하지 못하고 멈췄습니다.'}.get(reason,'작업 단계·시간 제한 또는 도구 오류로 완료하지 못했습니다.')
         raise HermesError(message+' 전송 여부를 확인하기 전에는 재시도하지 않습니다.',outcome)
     return outcome
 
@@ -140,12 +146,12 @@ class HermesRunner:
                "DAEVIS_MCP_REQUEST_ID": uuid.uuid4().hex,
                "DAEVIS_MCP_CURRENT_TEXT":text[:1800],
                "DAEVIS_MCP_CHAT_SCOPE":chat_scope or '',
-               "DAEVIS_MCP_REQUEST_EXPIRES": str(time.time()+175)}
+               "DAEVIS_MCP_REQUEST_EXPIRES": str(time.time()+205)}
         env['AGENT_OUTBOX']=str(current_outbox(self.data/'outbox'))
         payload = {"text":text, "instructions":instructions, "history":history[-12:]}
         try:
             output = self.execute([self.python,self.worker], input=json.dumps(payload,ensure_ascii=False),
-                                  text=True, encoding="utf-8", env=env, timeout=180, start_new_session=True)
+                                  text=True, encoding="utf-8", env=env, timeout=210, start_new_session=True)
         except (subprocess.TimeoutExpired, OSError):
             raise HermesError("Hermes 응답 제한 시간 또는 실행 오류입니다. 실행 결과 확인 없이 재전송하지 않습니다.") from None
         if output.returncode:

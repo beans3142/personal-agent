@@ -10,9 +10,43 @@ async def owner_check(bot,interaction):
 
 
 class InteractionChannel:
-    def __init__(self,interaction):self.interaction=interaction
+    def __init__(self,interaction):self.interaction=interaction;self.id=getattr(interaction,'channel_id',None)
     async def send(self,text,**kwargs):
-        await self.interaction.followup.send(text,ephemeral=True,allowed_mentions=discord.AllowedMentions.none(),**kwargs)
+        kwargs.setdefault('allowed_mentions',discord.AllowedMentions.none())
+        return await self.interaction.followup.send(text,ephemeral=True,wait=True,**kwargs)
+
+
+class ShutdownConfirmView(discord.ui.View):
+    def __init__(self,bot,pc):
+        super().__init__(timeout=120);self.bot=bot;self.pc=pc;self.used=False
+        for label,yes in [('예',True),('아니오',False)]:
+            button=discord.ui.Button(label=label,style=discord.ButtonStyle.danger if yes else discord.ButtonStyle.secondary)
+            async def choose(interaction,confirmed=yes):
+                if self.used:
+                    return await interaction.response.edit_message(content='이미 처리한 확인입니다.',view=None)
+                self.used=True
+                await interaction.response.edit_message(content='종료 요청을 확인하고 있어요.' if confirmed else '종료하지 않았어요.',view=None)
+                self.stop()
+                if not confirmed:return
+                current=next((p for p in bot.pc_registry.inventory() if p['node']==pc['node'] and p['label']==pc['label']),None)
+                if not current or not current['online']:
+                    return await interaction.followup.send('PC 연결 프로그램이 응답하지 않거나 등록이 바뀌어 종료하지 않았어요.',ephemeral=True)
+                message=SimpleNamespace(id=interaction.id,guild=None,channel=InteractionChannel(interaction))
+                try:await bot.handle_pc(message,'shutdown',pc['label'])
+                except ValueError:await interaction.followup.send('연결 상태가 바뀌어 종료 요청을 보내지 못했어요.',ephemeral=True)
+                except Exception:await interaction.followup.send('요청 결과를 확인하지 못했어요. 다시 실행하기 전에 상태 확인이 필요해요.',ephemeral=True)
+            button.callback=choose;self.add_item(button)
+    async def interaction_check(self,interaction):return await owner_check(self.bot,interaction)
+
+
+async def confirm_shutdown(bot,channel,label):
+    pc=bot.pc_registry.resolve(label)
+    current=next((p for p in bot.pc_registry.inventory() if p['node']==pc['node']),None)
+    if not current or not current['online']:
+        await channel.send(pc['label']+'의 연결 프로그램이 응답하지 않아요. PC 전원 상태는 확인할 수 없고, 종료 요청은 보내지 않았어요.')
+        return {'status':'disconnected','label':pc['label'],'executed':False}
+    await channel.send(pc['label']+'의 연결 프로그램이 응답하고 있어요. 이 PC를 60초 뒤에 끌까요?',view=ShutdownConfirmView(bot,pc))
+    return {'status':'confirmation_required','label':pc['label'],'executed':False}
 
 
 class AddPCModal(discord.ui.Modal,title='PC 추가'):

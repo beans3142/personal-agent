@@ -51,6 +51,23 @@ def test_server_and_discussion_are_never_pc_shutdown(text):
     assert parse_pc_command(text) is None
 
 
+@pytest.mark.parametrize('text', ['대비스 내 데스크톱 꺼줘', '내 데스크탑 꺼줘'])
+def test_natural_desktop_name(text,tmp_path):
+    r=PCRegistry(tmp_path/'pc.sqlite3')
+    pc=r.redeem(r.invite('데스크톱'))
+    action,target=parse_pc_command(text)
+    assert action=='shutdown'
+    assert r.resolve(target)['node']==pc['node']
+
+
+def test_natural_alias_keeps_exact_registered_name_and_unknown_target(tmp_path):
+    r=PCRegistry(tmp_path/'pc.sqlite3')
+    a=r.redeem(r.invite('데스크톱'));b=r.redeem(r.invite('내 데스크톱'))
+    assert r.resolve('내 데스크톱')['node']==b['node']
+    assert r.resolve('데스크탑')['node']==a['node']
+    with pytest.raises(ValueError):r.resolve('내 노트북')
+
+
 def client():
     p=Path(__file__).parents[1]/'deploy/device-node.py'
     spec=importlib.util.spec_from_file_location('pc_node',p);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m

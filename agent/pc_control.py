@@ -24,7 +24,7 @@ def parse_pc_command(text):
     target=m[1].strip()
     if re.search(r'서버|비서|본체|server',target,re.I):return None
     default=bool(re.fullmatch(r'(?:내\s*)?(?:PC|컴|컴퓨터)',target,re.I))
-    if not default and not (re.search(r'PC|컴퓨터|데스크톱|노트북|랩탑',target,re.I)):return None
+    if not default and not (re.search(r'PC|컴퓨터|데스크톱|데스크탑|노트북|랩탑',target,re.I)):return None
     target=target if not default else None
     return ('cancel' if '취소' in m[2] else 'wake' if m[2].startswith('켜') else 'shutdown'),target
 
@@ -37,6 +37,8 @@ class PCRegistry(DeviceStore):
                 CREATE TABLE IF NOT EXISTS pcs(alias TEXT PRIMARY KEY,label TEXT,node TEXT UNIQUE,is_default INTEGER DEFAULT 0);
                 CREATE UNIQUE INDEX IF NOT EXISTS pc_default ON pcs(is_default) WHERE is_default=1;
                 CREATE TABLE IF NOT EXISTS pc_invites(digest TEXT PRIMARY KEY,label TEXT,expires REAL);
+                CREATE TABLE IF NOT EXISTS pc_shutdowns(job TEXT PRIMARY KEY,accepted REAL,cancel_id TEXT);
+                CREATE TABLE IF NOT EXISTS pc_displays(job TEXT PRIMARY KEY,channel TEXT,message TEXT,finished INTEGER DEFAULT 0);
             ''')
 
     @staticmethod
@@ -81,6 +83,14 @@ class PCRegistry(DeviceStore):
             if not row and label is not None and re.search(r'PC$',label,re.I):
                 short=re.sub(r'\s*PC$','',label,flags=re.I).strip()
                 if short:row=db.execute('SELECT * FROM pcs WHERE alias=?',(self.alias(short),)).fetchone()
+            if not row and label is not None:
+                # Preserve exact names before resolving conversational prefixes/spelling.
+                normalize=lambda s:re.sub(r'\s+','',s).casefold().replace('데스크탑','데스크톱')
+                query=normalize(label)
+                choices={query}
+                if label.startswith('내 '):choices.add(normalize(label[2:]))
+                matches=[r for r in db.execute('SELECT * FROM pcs') if normalize(r['label']) in choices]
+                if len(matches)==1:row=matches[0]
         if not row:raise ValueError('unknown PC; use PC 목록')
         return dict(row)
 
@@ -111,7 +121,68 @@ class PCRegistry(DeviceStore):
                 db.execute("UPDATE jobs SET status='cancelled' WHERE node=? AND action='pc_shutdown' AND status='queued'",(pc['node'],))
         if action not in ('shutdown','cancel'):raise ValueError('unsupported PC action')
         job=self.enqueue(pc['node'],'pc_shutdown' if action=='shutdown' else 'pc_cancel_shutdown',{},request_key,15)
+        if action=='cancel':
+            with self._db() as db:
+                db.execute("INSERT INTO pc_shutdowns(job,cancel_id) SELECT id,? FROM jobs WHERE node=? AND action='pc_shutdown' AND status IN ('dispatched','succeeded') ON CONFLICT(job) DO UPDATE SET cancel_id=excluded.cancel_id",(job['id'],pc['node']))
         return {**job,'label':pc['label'],'node':pc['node']}
+
+    def ack(self,node,token,job_id,status):
+        super().ack(node,token,job_id,status)
+        if status=='succeeded':
+            with self._db() as db:
+                row=db.execute("SELECT action FROM jobs WHERE id=?",(job_id,)).fetchone()
+                if row and row['action']=='pc_shutdown':
+                    db.execute('INSERT INTO pc_shutdowns(job,accepted) VALUES(?,?) ON CONFLICT(job) DO UPDATE SET accepted=COALESCE(pc_shutdowns.accepted,excluded.accepted)',(job_id,self.clock()))
+
+    def shutdown_progress(self,job_id):
+        with self._db() as db:
+            self._expire(db)
+            row=db.execute("SELECT j.*,m.accepted,m.cancel_id,p.label,n.seen,n.digest FROM jobs j LEFT JOIN pc_shutdowns m ON m.job=j.id LEFT JOIN pcs p ON p.node=j.node LEFT JOIN nodes n ON n.name=j.node WHERE j.id=? AND j.action='pc_shutdown'",(job_id,)).fetchone()
+            if not row:raise ValueError('unknown shutdown')
+            r=dict(row);newer=bool(db.execute("SELECT 1 FROM jobs WHERE node=? AND action='pc_shutdown' AND rowid>(SELECT rowid FROM jobs WHERE id=?)",(r['node'],job_id)).fetchone());cancel=db.execute('SELECT status FROM jobs WHERE id=?',(r['cancel_id'],)).fetchone() if r['cancel_id'] else None
+        remaining=max(0,int(r['accepted']+60-self.clock())) if r['accepted'] is not None else None
+        online=bool(r['digest'] and r['seen'] and self.clock()-r['seen']<=20)
+        phase=r['status']
+        if phase=='cancelled' or cancel and cancel['status']=='succeeded':phase='cancelled'
+        elif cancel:phase='cancelling' if cancel['status'] in ('queued','dispatched') else 'cancel_uncertain'
+        elif r['accepted'] is not None:
+            phase='waiting' if remaining else 'checking' if online else 'disconnected'
+        elif phase=='succeeded':phase='unverified'  # Legacy receipt has no countdown timestamp.
+        if newer and phase not in ('cancelled','failed','expired'):phase='superseded'
+        return {'id':job_id,'node':r['node'],'label':r['label'] or '등록 해제된 PC','phase':phase,
+                'remaining':remaining,'created':r['created'],'power_off_confirmed':False,
+                'cancellable':bool(r['label'] and r['digest'] and not cancel and not newer and
+                    (r['status']=='queued' or online and r['status'] in ('dispatched','succeeded') and (remaining is None or remaining>5)))}
+
+    def cancel_shutdown(self,job_id,request_key):
+        # Target is the immutable job/node, never the current default or reused label.
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE');self._expire(db)
+            r=db.execute("SELECT j.*,m.accepted,m.cancel_id,n.seen,n.digest FROM jobs j LEFT JOIN pc_shutdowns m ON m.job=j.id LEFT JOIN nodes n ON n.name=j.node WHERE j.id=? AND j.action='pc_shutdown'",(job_id,)).fetchone()
+            if not r:raise ValueError('unknown shutdown')
+            if db.execute("SELECT 1 FROM jobs WHERE node=? AND action='pc_shutdown' AND rowid>(SELECT rowid FROM jobs WHERE id=?)",(r['node'],job_id)).fetchone():raise ValueError('newer shutdown exists')
+            if r['cancel_id']:return {'id':r['cancel_id'],'status':'queued','deduplicated':True}
+            if r['status']=='cancelled':return {'id':job_id,'status':'cancelled','deduplicated':True}
+            if r['status']=='queued':
+                db.execute("UPDATE jobs SET status='cancelled' WHERE id=?",(job_id,))
+                return {'id':job_id,'status':'cancelled'}
+            if r['status'] not in ('dispatched','succeeded') or not r['digest'] or self.clock()-r['seen']>20 or r['accepted'] is not None and self.clock()>=r['accepted']+55:
+                raise ValueError('cancellation window not confirmed')
+            cancel_id=secrets.token_hex(16);now=self.clock()
+            deadline=(r['accepted'] if r['accepted'] is not None else r['created'])+55
+            if now>=deadline:raise ValueError('cancellation window elapsed')
+            db.execute("INSERT INTO jobs(id,node,action,payload,request_key,created,expires,status) VALUES(?,?,'pc_cancel_shutdown','{}',?,?,?,'queued')",(cancel_id,r['node'],request_key,now,min(now+15,deadline)))
+            db.execute('INSERT INTO pc_shutdowns(job,accepted,cancel_id) VALUES(?,?,?) ON CONFLICT(job) DO UPDATE SET cancel_id=excluded.cancel_id',(job_id,r['accepted'],cancel_id))
+            return {'id':cancel_id,'status':'queued'}
+
+    def save_display(self,job_id,channel,message):
+        with self._db() as db:db.execute('INSERT OR IGNORE INTO pc_displays(job,channel,message) VALUES(?,?,?)',(job_id,str(channel),str(message)))
+
+    def displays(self,all_records=False):
+        with self._db() as db:return [dict(r) for r in db.execute('SELECT * FROM pc_displays'+('' if all_records else ' WHERE finished=0'))]
+
+    def finish_display(self,job_id):
+        with self._db() as db:db.execute('UPDATE pc_displays SET finished=1 WHERE job=?',(job_id,))
 
     def job(self,job_id):
         with self._db() as db:

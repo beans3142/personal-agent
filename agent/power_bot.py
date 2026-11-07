@@ -41,8 +41,12 @@ class PowerBot(discord.Client):
         self.owner_id = owner_id
         self.control = control
         self.lock = asyncio.Lock()
+        self.pc_display_lock=asyncio.Lock()
+        self.pc_progress_tasks=set()
 
     async def setup_hook(self):
+        from .pc_progress import restore_shutdowns
+        self.loop.create_task(restore_shutdowns(self))
         from .pc_discord import PCHomeView
         self.add_view(PCHomeView(self))
         if getattr(self,'control_store',None):
@@ -73,8 +77,14 @@ class PowerBot(discord.Client):
                 await self.handle_pc(message, *pc_command)
             except ValueError as error:
                 reason=str(error)
-                await message.channel.send('PC가 연결되어 있지 않아 요청을 보내지 않았어요.' if 'offline' in reason else
-                    '등록된 PC 이름을 확인해 주세요. `PC 목록`으로 확인할 수 있어요.')
+                if pc_command[0]=='shutdown' and 'unknown PC' in reason:
+                    pcs=self.pc_registry.inventory()
+                    if len(pcs)==1 and pcs[0]['online']:
+                        from .pc_discord import ShutdownConfirmView
+                        await message.channel.send('요청한 이름의 PC를 찾지 못했어요. 연결된 PC는 '+pcs[0]['label']+'입니다. 이 PC를 끌까요?',view=ShutdownConfirmView(self,pcs[0]))
+                        return
+                await message.channel.send('PC 연결 프로그램이 응답하지 않아 요청을 보내지 않았어요. PC 전원이 꺼졌다는 뜻은 아니에요.' if 'offline' in reason else
+                    '요청한 PC를 특정하지 못했어요. 등록된 PC는 '+', '.join(p['label'] for p in self.pc_registry.inventory())+'입니다. 어느 PC를 말씀하셨나요?')
             except Exception:
                 log.exception('PC control request failed')
                 await message.channel.send('PC 요청을 처리하지 못했어요. 실행 여부 확인 전에는 다시 시도하지 마세요.')
@@ -88,6 +98,15 @@ class PowerBot(discord.Client):
             except Exception:
                 log.exception("power command failed")
                 await message.channel.send("전원 명령을 처리하지 못했어요. 전원 봇 로그를 확인해야 해요.")
+
+    async def confirm_pc_shutdown(self,label):
+        from .pc_discord import confirm_shutdown
+        owner=await self.fetch_user(self.owner_id)
+        return await confirm_shutdown(self,await owner.create_dm(),label)
+
+    async def publish_shutdown(self,job,channel):
+        from .pc_progress import publish_shutdown
+        return await publish_shutdown(self,job,channel)
 
     async def handle_pc(self,message,action,label):
         registry=self.pc_registry
@@ -119,6 +138,9 @@ class PowerBot(discord.Client):
             await message.channel.send(pc['label']+' 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.')
             return
         job=await asyncio.to_thread(registry.submit,label,action,'discord-'+str(message.id))
+        if action=='shutdown':
+            await self.publish_shutdown(job,message.channel)
+            return
         status=job['status']
         for _ in range(6):
             if status!='queued' and status!='dispatched':break

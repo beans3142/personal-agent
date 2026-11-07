@@ -6,13 +6,14 @@ from unittest.mock import AsyncMock
 import discord
 import pytest
 
-from agent.gateway import ApprovalView, Gateway, instructions_for, kakao_status_reply, quoted_kakao_message
+from agent.gateway import PaymentApprovalView, Gateway, instructions_for, kakao_status_reply, quoted_kakao_message
 
 
 class Channel:
     def __init__(self, channel_id):
         self.id = channel_id
-        self.send = AsyncMock()
+        self.status = SimpleNamespace(id=99, edit=AsyncMock(), delete=AsyncMock())
+        self.send = AsyncMock(return_value=self.status)
 
     @asynccontextmanager
     async def typing(self):
@@ -27,7 +28,7 @@ def gateway():
         owner_dm=AsyncMock(return_value=dm),
         turn=lambda *args: calls.append(args) or "private result",
         approver=lambda channel: channel,
-        send_long=AsyncMock(), send_outbox=AsyncMock(),
+        send_long=AsyncMock(), send_outbox=AsyncMock(), watch_approvals=AsyncMock(),
     )
     return fake, dm, calls
 
@@ -44,9 +45,12 @@ def test_only_owner_mentions_run_and_results_stay_in_original_channel():
     asyncio.run(Gateway.on_message(bot, msg))
     assert calls[0][:2] == ("guild:20", "test")
     assert calls[0][2] is msg.channel
-    bot.send_long.assert_awaited_once_with(msg.channel, "private result")
+    # One status message is sent first and then edited into the answer.
+    assert msg.channel.send.await_count == 1
+    assert msg.channel.send.await_args.args[0].startswith("⏳")
+    assert msg.channel.status.edit.await_args.kwargs["content"] == "private result"
+    bot.send_long.assert_not_awaited()
     bot.send_outbox.assert_awaited_once_with(msg.channel)
-    assert msg.channel.send.await_count == 0
     assert bot.owner_dm.await_count == 0
     assert [call.args[0] for call in msg.add_reaction.await_args_list] == ["⏳", "✅"]
     msg.remove_reaction.assert_awaited_once_with("⏳", bot.user)
@@ -58,6 +62,14 @@ def test_reaction_permission_failure_still_returns_result():
     msg.add_reaction.side_effect = discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "denied")
     asyncio.run(Gateway.on_message(bot, msg))
     assert calls
+    assert msg.channel.status.edit.await_args.kwargs["content"] == "private result"
+
+
+def test_answer_still_arrives_when_status_message_cannot_be_sent():
+    bot, _, calls = gateway()
+    msg = message()
+    msg.channel.send.side_effect = discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "denied")
+    asyncio.run(Gateway.on_message(bot, msg))
     bot.send_long.assert_awaited_once_with(msg.channel, "private result")
 
 
@@ -104,14 +116,61 @@ def test_dm_still_works_without_mention_and_empty_mention_is_ignored():
     assert not calls
 
 
-def test_approval_buttons_reject_nonowner():
+def test_payment_buttons_reject_nonowner():
     async def run():
-        view = ApprovalView(owner_id=1)
+        view = PaymentApprovalView(owner_id=1, on_answer=lambda value: None, timeout=5)
         other = SimpleNamespace(user=SimpleNamespace(id=2), response=SimpleNamespace(send_message=AsyncMock()))
         assert not await view.interaction_check(other)
-        assert not view.approved
+        assert view.answer is None
         assert await view.interaction_check(SimpleNamespace(user=SimpleNamespace(id=1)))
     asyncio.run(run())
+
+
+def test_payment_button_records_answer_once_and_removes_buttons():
+    async def run():
+        answers = []
+        view = PaymentApprovalView(owner_id=1, on_answer=answers.append, timeout=5)
+        interaction = SimpleNamespace(user=SimpleNamespace(id=1), message=SimpleNamespace(content="💳 결제 확인"),
+                                      response=SimpleNamespace(edit_message=AsyncMock()))
+        await view.decide(interaction, "allow")
+        await view.decide(interaction, "deny")
+        assert answers == ["allow"]
+        kwargs = interaction.response.edit_message.await_args.kwargs
+        assert kwargs["view"] is None and "결제를 진행" in kwargs["content"]
+    asyncio.run(run())
+
+
+def test_payment_request_is_shown_in_request_channel_with_buttons(tmp_path):
+    from agent.approvals import ChannelApproval, pending_requests
+    import threading, time as clock
+
+    async def run():
+        channel = Channel(20)
+        bot = SimpleNamespace(owner_id=1)
+        bot.show_payment_request = lambda *a, **k: Gateway.show_payment_request(bot, *a, **k)
+        task = asyncio.create_task(Gateway.watch_approvals(bot, channel, tmp_path, interval=0.01))
+        result = {}
+        worker = threading.Thread(target=lambda: result.setdefault("ok", ChannelApproval(tmp_path, timeout=2, sleep=clock.sleep)("payment", {"button": "결제하기", "package": "com.example.shop", "amounts": ["32,900원"]})))
+        worker.start()
+        for _ in range(200):
+            if channel.send.await_count:
+                break
+            await asyncio.sleep(0.01)
+        kwargs = channel.send.await_args.kwargs
+        assert "결제하기" in kwargs["content"] and "32,900원" in kwargs["content"]
+        kwargs["view"].on_answer("allow")
+        await asyncio.to_thread(worker.join)
+        task.cancel()
+        assert result["ok"] is True
+        assert pending_requests(tmp_path) == []
+    asyncio.run(run())
+
+
+def test_turn_approver_never_asks_for_non_payment_tools():
+    bot = SimpleNamespace(owner_id=1, loop=None)
+    approve = Gateway.approver(bot, Channel(20))
+    assert approve("mail_send", {"text": "x"}) is True
+    assert approve("android_click", {"button": "삭제"}) is True
 
 
 def test_public_prompt_does_not_automatically_load_private_facts():
@@ -249,13 +308,6 @@ def test_fixed_route_executes_code_without_model():
     assert '모델 호출 0회' in reply and '방식 프로그램' in reply
 
 
-def test_private_mcp_approval_commands_never_become_model_requests():
-    bot,_,calls=gateway()
-    msg=message(content='승인 0123456789abcdef',guild=False)
-    asyncio.run(Gateway.on_message(bot,msg))
-    assert not calls
-
-
 def test_scheduled_hermes_results_also_hide_kakao_content():
     from agent.hermes_gateway import HermesGateway
     from agent.hermes_runner import HermesResult
@@ -266,3 +318,13 @@ def test_scheduled_hermes_results_also_hide_kakao_content():
     fake=SimpleNamespace(memory=SimpleNamespace(recent=lambda:[]),engine=SimpleNamespace(run=run))
     output=HermesGateway.run_scheduled(fake,'read status')
     assert 'private conversation' not in output and scopes[0]['owner_request'] is False
+
+
+def test_managed_pc_receipt_does_not_send_a_second_answer():
+    bot,_,_=gateway()
+    def turn(*args):
+        bot._pc_managed_message=12345
+        return '이미 상태 메시지를 보냈습니다.'
+    bot.turn=turn
+    asyncio.run(Gateway.on_message(bot,message(content='<@9> 작업 끝났으니 데스크톱 전원 내려줘')))
+    bot.send_long.assert_not_awaited()

@@ -15,8 +15,8 @@ def guard(**kwargs):
 def test_reported_aggregate_threshold_between_calls_and_latched_stop():
     policy = guard()
     assert policy.before_step(0) is None
-    assert policy.before_step(59999) is None
-    assert policy.before_step(60000) == 'input_token_limit'
+    assert policy.before_step(99999) is None
+    assert policy.before_step(100000) == 'input_token_limit'
     assert policy.before_step(100) == 'input_token_limit'
 
 
@@ -125,3 +125,24 @@ def test_model_usage_failure_is_classified_without_echoing_provider_text():
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     assert module.model_failure_reason({'completed':False,'error':'HTTP429: The usage limit has been reached'})=='usage_limit_reached'
     assert module.model_failure_reason({'completed':True,'final_response':'usage_limit_reached is an error code'}) is None
+
+
+def policy_module():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location('hermes_policy_limits', Path(__file__).parents[1] / 'deploy' / 'hermes_policy.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_iteration_cap_is_reported_as_its_own_reason():
+    module = policy_module()
+    assert module.model_failure_reason({'completed': False, 'api_calls': module.MAX_ITERATIONS}, module.MAX_ITERATIONS) == 'iteration_limit'
+    assert module.model_failure_reason({'completed': False, 'api_calls': 3}, module.MAX_ITERATIONS) is None
+    assert module.model_failure_reason({'completed': True, 'api_calls': 99}, module.MAX_ITERATIONS) is None
+
+
+def test_model_errors_win_over_iteration_cap():
+    module = policy_module()
+    assert module.model_failure_reason({'completed': False, 'api_calls': 99, 'error': 'rate limit'}, 20) == 'model_rate_limited'

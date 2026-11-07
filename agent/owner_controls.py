@@ -20,7 +20,7 @@ def power_intent_allowed(action,text,pc=None):
     plain=re.sub(r'```[\s\S]*?```|`[^`]*`|["“][^"”]*["”]|\x27[^\x27]*\x27','',text)
     if re.search(r'만약|가정|끝나면|완료되면|나중에|다음에|내일',plain):return False
     if re.search(r'라는|라고\s*(?:말|하|보내|적)|번역|예시|설명|문장|방법|이유|왜|말하면|어떻게|가능(?:해|하니|한가)|수\s*있(?:어|나|니)',plain):return False
-    pc_target=bool(re.search(r'(?<![a-z])PC(?![a-z])|컴퓨터|노트북|데스크톱|컴\s|컴(?:을|좀)|내\s*컴',plain,re.I) or pc and pc in plain)
+    pc_target=bool(re.search(r'(?<![a-z])PC(?![a-z])|컴퓨터|노트북|데스크톱|데스크탑|컴\s|컴(?:을|좀)|내\s*컴',plain,re.I) or pc and pc in plain)
     server=bool(re.search(r'서버|본체',plain,re.I) or not pc_target and re.search(r'비서|대비스',plain))
     if action=='server_stop' and not server:return False
     if action=='server_stop' and re.search(r'(?:서버|본체)(?:를|는|은|가)?\s*(?:말고|아니라|끄지|종료하지)',plain):return False
@@ -29,7 +29,8 @@ def power_intent_allowed(action,text,pc=None):
     if re.search(r'끄지|꺼지지|종료하지|하지\s*마|취소|않[아으]?|아니',plain):return False
     verb=r'(?:켜|깨워|기동)' if action=='pc_wake' else r'(?:꺼|끄|종료|셧다운|전원.{0,6}(?:내려|내리|차단)|shutdown)'
     ending=r'(?:\s*(?:줘|줄래|주세요|해줘|해줄래|해|해라|시켜줘|시켜|하자|자|고\s*싶어|하고\s*싶어|를\s*부탁해))?'
-    return bool(re.search(verb+ending+r'\s*(?:[.!?]*\s*$|[,;]|그리고)',plain,re.I))
+    target_tail=r'\s+(?:내\s*)?(?:데스크톱|데스크탑|노트북|PC|컴퓨터)' if action=='pc_shutdown' else r'(?!)'
+    return bool(re.search(verb+ending+r'\s*(?:[.!?]*\s*$|[,;]|그리고|'+target_tail+r'\s*[.!?]*$)',plain,re.I))
 
 
 class ControlStore:
@@ -131,7 +132,7 @@ def control_handler(parent,store,bot,token_digest):
 def dispatch_control(store,bot,body):
     action=body.get('action')
     allowed={'preferences','web_login','pc_list','pc_shutdown','pc_cancel','pc_wake','server_status','server_stop'}
-    if action not in allowed or any(k not in ('action','changes','pc','request_id','owner_text') for k in body):raise ValueError('unsupported action')
+    if action not in allowed or any(k not in ('action','changes','pc','request_id','owner_text','chat_scope') for k in body):raise ValueError('unsupported action')
     if 'pc' in body and (not isinstance(body['pc'],str) or not 1<=len(body['pc'])<=40):raise ValueError('invalid PC')
     if not power_intent_allowed(action,body.get('owner_text'),body.get('pc')):raise ValueError('current request does not clearly authorize this target/action')
     if action=='preferences':return {'preferences':store.preferences(body.get('changes')),'labels':REPORTS}
@@ -152,7 +153,20 @@ def dispatch_control(store,bot,body):
     if action in ('pc_shutdown','pc_cancel'):
         pc=selected
         key=body['request_id']+':'+action+':'+pc['node']
-        return bot.pc_registry.submit(body.get('pc'),'shutdown' if action=='pc_shutdown' else 'cancel',key)
+        explicit=label in original or bool(re.search(r'(?:내)?(?:pc|컴퓨터|컴)(?:을|좀|전원|꺼|종료)',original))
+        if action=='pc_shutdown' and not explicit:
+            import asyncio
+            return store.once(key,lambda:asyncio.run_coroutine_threadsafe(bot.confirm_pc_shutdown(pc['label']),bot.loop).result(timeout=15))
+        job=bot.pc_registry.submit(body.get('pc'),'shutdown' if action=='pc_shutdown' else 'cancel',key)
+        scope=body.get('chat_scope','')
+        if action=='pc_shutdown' and isinstance(scope,str) and re.fullmatch(r'(?:guild:)?[0-9]{10,22}',scope):
+            import asyncio
+            async def publish():
+                channel=await bot.fetch_channel(int(scope.removeprefix('guild:')))
+                return await bot.publish_shutdown(job,channel)
+            try:job.update(asyncio.run_coroutine_threadsafe(publish(),bot.loop).result(timeout=12))
+            except Exception:pass  # The command was submitted; never repeat it for a UI failure.
+        return job
     if action=='pc_wake':
         from .pc_wake import wake_pc
         pc=selected;config=Path('data/pc-wake.json')

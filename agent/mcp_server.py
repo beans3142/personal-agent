@@ -14,18 +14,18 @@ import json
 import logging
 import os
 from pathlib import Path
-import secrets
 import subprocess
 import sys
 import time
 
-import httpx
 import jsonschema
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
+from .approvals import ChannelApproval, owner_policy, owner_request_active
 from .loop import Tool
+from .progress import record as record_progress
 
 log = logging.getLogger(__name__)
 READ_TOOLS = frozenset({
@@ -33,21 +33,33 @@ READ_TOOLS = frozenset({
     "memory_search", "kb_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
     "mail_read", "route_search", "map_search", "android_screen", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
-ROUTINE_ANDROID = frozenset({"android_open", "android_click", "android_input", "android_swipe", "android_key"})
 PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs"})
 DISPATCH_TOOLS = frozenset({"plan_execute", "recipe_run"})
 
 
-def owner_request_active(env) -> bool:
+def scoped_allowlist(allowed, env, private_tools=frozenset(), read_tools=frozenset()):
+    scoped = set(allowed) - PRIVATE_TOOLS - set(private_tools) if env.get("DAEVIS_MCP_PUBLIC") == "1" else set(allowed)
+    return scoped & (READ_TOOLS | set(read_tools)) if env.get("DAEVIS_MCP_READ_ONLY") == "1" else scoped
+
+
+def load_private_plugin(data, env):
+    """Owner-only tools from the unpublished `agent.private` package, if deployed.
+
+    The package returns (tools, read-only names, private names). Read-only and
+    private claims are limited to the plugin's own tools, and a failing plugin
+    never stops the public runtime.
+    """
     try:
-        return bool(env.get("OWNER_ID")) and env.get("DAEVIS_MCP_OWNER_REQUEST") == env["OWNER_ID"] and float(env.get("DAEVIS_MCP_REQUEST_EXPIRES", "0")) > time.time()
-    except (ValueError, TypeError):
-        return False
-
-
-def scoped_allowlist(allowed, env):
-    scoped = set(allowed) - PRIVATE_TOOLS if env.get("DAEVIS_MCP_PUBLIC") == "1" else set(allowed)
-    return scoped & READ_TOOLS if env.get("DAEVIS_MCP_READ_ONLY") == "1" else scoped
+        import importlib
+        module = importlib.import_module("agent.private")
+        tools, read, private = module.build_tools(data, env)
+    except ImportError:
+        return [], frozenset(), frozenset()
+    except Exception as error:
+        log.warning("private plugin disabled (%s)", type(error).__name__)
+        return [], frozenset(), frozenset()
+    names = {tool.name for tool in tools}
+    return list(tools), frozenset(set(read) & names), frozenset(set(private) & names)
 
 
 def result(text: str, error: bool = False) -> types.CallToolResult:
@@ -55,14 +67,16 @@ def result(text: str, error: bool = False) -> types.CallToolResult:
 
 
 class ToolBridge:
-    def __init__(self, tools: list[Tool], allowed: set[str], approve=lambda *_: False):
+    def __init__(self, tools: list[Tool], allowed: set[str], approve=lambda *_: False, read_tools=frozenset(), progress=None):
         self.tools = {tool.name: tool for tool in tools}
+        self.read_tools = READ_TOOLS | frozenset(read_tools)
         if len(self.tools) != len(tools):
             raise ValueError("duplicate tool names")
         if allowed - self.tools.keys():
             raise ValueError("unknown allowlist tools: " + ", ".join(sorted(allowed - self.tools.keys())))
         self.allowed = frozenset(allowed)
         self.approve = approve
+        self.progress = progress
 
     def list_tools(self) -> list[types.Tool]:
         items = []
@@ -71,7 +85,7 @@ class ToolBridge:
             schema = deepcopy(tool.parameters)
             schema["additionalProperties"] = False
             items.append(types.Tool(name=name, description=tool.description, inputSchema=schema,
-                                    annotations=types.ToolAnnotations(readOnlyHint=name in READ_TOOLS and not tool.needs_approval,
+                                    annotations=types.ToolAnnotations(readOnlyHint=name in self.read_tools and not tool.needs_approval,
                                                                       idempotentHint=False)))
         return items
 
@@ -85,11 +99,16 @@ class ToolBridge:
             jsonschema.validate(args, schema)
         except jsonschema.ValidationError:
             return result("error: invalid tool arguments", True)
+        if self.progress:
+            try:
+                self.progress(name, args)
+            except Exception:
+                pass  # Progress display must never block or fail the tool.
         try:
-            if (tool.needs_approval or (name not in READ_TOOLS and name not in DISPATCH_TOOLS)) and not self.approve(name, deepcopy(args)):
+            if (tool.needs_approval or (name not in self.read_tools and name not in DISPATCH_TOOLS)) and not self.approve(name, deepcopy(args)):
                 return result("denied: owner approval required", True)
             text = str(tool.run(args))
-            if name != "android_screen" and len(text) > 8000:
+            if not name.startswith("android_") and len(text) > 8000:
                 text = text[:8000] + "\n[truncated]"
             failed = text.startswith(("error:", "denied:", "blocked:"))
             if name == 'auth_ensure':
@@ -102,52 +121,6 @@ class ToolBridge:
             # Site/browser exceptions can contain passwords, URLs and chat text.
             log.warning("tool failed: %s (%s)", name, type(error).__name__)
             return result("error: tool execution failed; outcome may be uncertain, do not blindly retry", True)
-
-
-class DiscordApproval:
-    """Ask only the configured owner in private; no approval tool is exposed.
-
-    Uses REST, so it does not consume the Discord gateway connection. The
-    current legacy gateway must be stopped while Hermes uses shared devices.
-    """
-    def __init__(self, token: str, owner_id: str, client=None, timeout=120, sleep=time.sleep, clock=time.monotonic):
-        if not token or not owner_id.isdecimal():
-            raise ValueError("Discord bot token and numeric OWNER_ID are required")
-        self.owner_id = owner_id
-        self.client = client or httpx.Client(base_url="https://discord.com/api/v10", headers={"Authorization": f"Bot {token}"}, timeout=15)
-        self.timeout, self.sleep, self.clock = timeout, sleep, clock
-
-    def _request(self, method, path, **kwargs):
-        response = self.client.request(method, path, **kwargs)
-        response.raise_for_status()
-        return response.json()
-
-    def __call__(self, name: str, args: dict) -> bool:
-        nonce = secrets.token_hex(8)
-        # Full action must fit: never ask approval of a truncated action.
-        detail = json.dumps({"tool": name, "arguments": args}, ensure_ascii=False)
-        if len(detail) > 1400:
-            return False
-        channel = self._request("POST", "/users/@me/channels", json={"recipient_id": self.owner_id})["id"]
-        sent = self._request("POST", f"/channels/{channel}/messages", json={
-            "content": f"대비스 MCP 실행 승인\n{detail}\n\n실행하려면 `승인 {nonce}`, 거절하려면 `거절 {nonce}`를 {self.timeout}초 안에 보내 주세요.",
-            "allowed_mentions": {"parse": []},
-        })
-        after = sent["id"]
-        deadline = self.clock() + self.timeout
-        while self.clock() < deadline:
-            messages = self._request("GET", f"/channels/{channel}/messages", params={"after": after, "limit": 100})
-            for message in sorted(messages, key=lambda m: int(m["id"])):
-                after = message["id"]
-                if message.get("author", {}).get("id") != self.owner_id or message.get("author", {}).get("bot"):
-                    continue
-                text = message.get("content", "").strip()
-                if text == f"승인 {nonce}":
-                    return True
-                if text == f"거절 {nonce}":
-                    return False
-            self.sleep(2)
-        return False
 
 
 def build_runtime(data: Path, env) -> ToolBridge:
@@ -168,23 +141,15 @@ def build_runtime(data: Path, env) -> ToolBridge:
     mode = env.get("DAEVIS_MCP_APPROVAL", "deny")
     if mode not in {"deny", "discord"}:
         raise ValueError("DAEVIS_MCP_APPROVAL must be deny or discord")
-    request_approval = DiscordApproval(env.get("DISCORD_BOT_TOKEN", ""), env.get("OWNER_ID", "")) if mode == "discord" else lambda *_: False
+    # "discord": payment buttons appear in the channel the owner asked from.
+    def lease_left():
+        try:
+            return float(env.get("DAEVIS_MCP_REQUEST_EXPIRES", "0")) - time.time()
+        except ValueError:
+            return 0
+    ask = ChannelApproval(env.get("AGENT_OUTBOX"), budget=lease_left) if mode == "discord" else (lambda *_: False)
+    approve = owner_policy(env, ask)
     login_permission = LoginImagePermission(data, env.get('DAEVIS_MCP_REQUEST_ID'), lambda: owner_request_active(env))
-    def approve(name, args):
-        # Only the owner-only gateway's local worker gets this short-lived lease.
-        # AndroidControl's consequential callback includes `button`, and must
-        # still ask the owner even though ordinary navigation is delegated.
-        if env.get("DAEVIS_MCP_OWNER_REQUEST"):
-            if not owner_request_active(env):
-                return False
-            if name=='owner_control':
-                return True  # Bounded controls recheck this owner lease in their handler.
-            if name in ROUTINE_ANDROID and "button" not in args:
-                return True
-            if name == 'auth_ensure' and args == {'site': 'naver'} and login_permission.enabled('naver'):
-                return True
-        accepted = request_approval(name, args)
-        return accepted and (not env.get("DAEVIS_MCP_OWNER_REQUEST") or owner_request_active(env))
     data.mkdir(parents=True, exist_ok=True)
     memory = Memory(data / "agent.db")
     browser = PlaywrightBrowser(data / "sessions")
@@ -201,7 +166,7 @@ def build_runtime(data: Path, env) -> ToolBridge:
     gate = AuthGate(EnvCredentials(env), browser, challenge_handler=challenge_handler, notify=notify,
                    can_login=lambda site: site != 'naver' or not policy_present or login_permission.can_login(site),
                    record_outcome=login_permission.record_outcome if policy_present else lambda *_: None)
-    android = AndroidControl(UiaDevice(env.get("ANDROID_SERIAL")), env=env, outbox=data / "outbox", approve=approve)
+    android = AndroidControl(UiaDevice(env.get("ANDROID_SERIAL")), env=env, outbox=data / "outbox", approve=approve, observe_after=True)
     tools = build_tools(memory, data / "schedule.json", env) + build_android_tools(android)
     tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)
     tools += build_kakao_self_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'))
@@ -209,11 +174,13 @@ def build_runtime(data: Path, env) -> ToolBridge:
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]
     if env.get("DISCORD_BOT_TOKEN"):
         tools.append(build_discord_user_tool(gate, browser, env["DISCORD_BOT_TOKEN"]))
+    plugin_tools, plugin_read, plugin_private = load_private_plugin(data, env)
+    tools += plugin_tools
     raw = env.get("DAEVIS_MCP_ALLOW_TOOLS", "memory_search,route_search,map_search,android_screen")
-    allowed = scoped_allowlist({name.strip() for name in raw.split(",") if name.strip()}, env)
-    underlying = [tool for tool in tools if tool.name in allowed]
+    allowed = scoped_allowlist({name.strip() for name in raw.split(",") if name.strip()}, env, plugin_private, plugin_read)
+    underlying = [tool for tool in tools if tool.name in allowed and tool.name not in plugin_read]
     tools += build_recipe_tools(RecipeExecutor(underlying, approve, data / "recipes.json"))
-    return ToolBridge(tools, allowed, approve)
+    return ToolBridge(tools, allowed, approve, plugin_read, progress=lambda name, args: record_progress(env.get("AGENT_OUTBOX"), name, args))
 
 
 def create_server(bridge: ToolBridge, executor: ThreadPoolExecutor) -> Server:

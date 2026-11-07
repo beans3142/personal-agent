@@ -29,6 +29,9 @@ class Device:
     def key(self, key):
         self.calls.append(("key", key))
 
+    def swipe(self, direction):
+        self.calls.append(("swipe", direction))
+
 
 def control(**kwargs):
     device = Device()
@@ -141,13 +144,26 @@ def test_empty_optional_text_does_not_block_credential_reference():
     assert device.calls == [("text", 2, "private-password")]
 
 
-def test_english_android_permission_allow_requires_owner_approval():
-    ui, device = control()
-    device.xml = '<hierarchy><node text="WHILE USING THE APP" resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" package="com.android.permissioncontroller" clickable="true" bounds="[0,0][200,80]"/></hierarchy>'
+@pytest.mark.parametrize("label", ["WHILE USING THE APP", "삭제", "동의", "로그아웃", "모두 허용"])
+def test_non_payment_buttons_click_without_asking(label):
+    asked = []
+    ui, device = control(approve=lambda *a: asked.append(a) or False)
+    device.xml = f'<hierarchy><node text="{label}" resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" package="com.android.permissioncontroller" clickable="true" bounds="[0,0][200,80]"/></hierarchy>'
     state = ui.observe()
-    with pytest.raises(PermissionError):
-        ui.click(state["snapshot"], 0, expected_label="WHILE USING THE APP")
-    assert device.calls == []
+    ui.click(state["snapshot"], 0, expected_label=label)
+    assert asked == []
+    assert device.calls == [("click", 100, 40)]
+
+
+def test_payment_question_carries_button_package_and_screen_amounts():
+    asked = []
+    ui, device = control(approve=lambda name, args: asked.append((name, args)) or True)
+    device.xml = ('<hierarchy><node text="32,900원" package="com.example.shop" bounds="[0,0][200,40]"/>'
+                  '<node text="결제하기" package="com.example.shop" clickable="true" bounds="[0,40][200,80]"/></hierarchy>')
+    state = ui.observe()
+    ui.click(state["snapshot"], 1)
+    assert asked == [("payment", {"button": "결제하기", "package": "com.example.shop", "amounts": ["32,900원"]})]
+    assert device.calls == [("click", 100, 60)]
 
 
 def test_device_error_does_not_echo_credentials_to_model():
@@ -300,3 +316,54 @@ def test_screenshot_uses_default_android_display_not_display_id_zero(tmp_path, m
     path = tmp_path / "screen.png"
     adapter.screenshot(path)
     assert path.read_bytes().startswith(b"\x89PNG")
+
+
+def watching(**kwargs):
+    naps = []
+    ui, device = control(observe_after=True, sleep=naps.append, **kwargs)
+    return ui, device, naps
+
+
+def test_actions_return_the_new_screen_in_one_call():
+    ui, device, naps = watching()
+    state = ui.observe()
+    result = ui.click(state["snapshot"], 0)
+    assert result["status"] == "clicked"
+    assert result["screen"]["snapshot"] != state["snapshot"]
+    assert result["screen"]["snapshot"] == ui.snapshot
+    assert any(node["text"] == "카카오톡" for node in result["screen"]["nodes"])
+    assert naps == [1.0]
+
+
+def test_returned_screen_can_be_used_for_the_next_action_directly():
+    ui, device, _ = watching()
+    first = ui.observe()
+    after_click = ui.click(first["snapshot"], 0)
+    after_input = ui.input(after_click["screen"]["snapshot"], 1, text="검색어")
+    assert after_input["status"] == "entered" and "screen" in after_input
+    assert ("text", 1, "검색어") in device.calls
+
+
+def test_swipe_key_and_submit_also_return_screen():
+    ui, device, _ = watching()
+    assert "screen" in ui.swipe("down")
+    assert "screen" in ui.key("back")
+
+
+def test_failed_observation_after_action_still_reports_the_action():
+    ui, device, _ = watching()
+    state = ui.observe()
+    def broken():
+        raise RuntimeError("uiautomator busy")
+    device.dump_hierarchy = broken
+    result = ui.swipe("up")
+    assert result["status"] == "swiped"
+    assert "screen" not in result and result["next"] == "android_screen"
+
+
+def test_internal_callers_keep_the_old_fast_return_without_waiting():
+    naps = []
+    ui, device = control(sleep=naps.append)
+    state = ui.observe()
+    assert ui.click(state["snapshot"], 0) == {"status": "clicked", "next": "android_screen"}
+    assert naps == []

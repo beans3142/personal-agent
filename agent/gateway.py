@@ -85,7 +85,7 @@ INSTRUCTIONS = """너는 사용자의 개인 Agent daevis(대비스)다. 요청�
 - 카톡에 보내는 메시지에는 본문만 쓴다. 처리 시간·토큰·모델·호출 횟수 등 사용량 표시는 붙이지 않는다. 사용량 표시는 Discord 응답에만 남긴다.
 - 카톡 전송 결과를 Discord에 알릴 때는 완료 여부만 답하고 보낸 문구·받은 대화·스크린샷을 공개하지 않는다.
 - 카톡 작업의 최종 응답은 결과 코드 한 줄만 쓴다. 실제 전송한 말풍선까지 확인하면 KAKAO_SENT, 미전송이면 KAKAO_NOT_SENT, 수신자가 모호하면 KAKAO_RECIPIENT_REQUIRED, 조회만 완료했으면 KAKAO_CHECKED. 대화 내용을 덧붙이지 않는다.
-- Android 화면을 조작한 뒤에는 다시 android_screen으로 확인한다. 화면의 요소 id와 snapshot은 직전 관찰에서만 가져온다.
+- Android 조작 도구의 결과에는 바뀐 화면(screen)이 함께 온다. 다음 조작은 그 screen의 snapshot과 요소 id를 쓰고, android_screen은 screen이 없을 때만 부른다.
 - 계정 아이디·비밀번호는 android_credential의 credential로 환경변수 이름만 지정한다. 주소·검색어는 android_input의 text로 입력한다. 한글도 입력할 수 있다.
 - 주문은 사용자에게 매장·상품·총액·배달지를 확인한 뒤 최종 결제를 실행한다. 기기 이전이나 기존 휴대폰 로그아웃은 먼저 알린다.
 """
@@ -98,28 +98,41 @@ def instructions_for(memory: Memory, public: bool = False) -> str:
     return f"{INSTRUCTIONS}{context}\n현재 시각: {now}\n\n기억:\n{facts or '- 없음'}"
 
 
-class ApprovalView(discord.ui.View):
-    def __init__(self, owner_id: int):
-        super().__init__(timeout=APPROVAL_TIMEOUT_SECONDS)
-        self.owner_id = owner_id
-        self.approved = False
+class PaymentApprovalView(discord.ui.View):
+    """Owner-only payment buttons; the first answer wins and buttons disappear."""
+    def __init__(self, owner_id: int, on_answer, timeout: float):
+        super().__init__(timeout=timeout)
+        self.owner_id, self.on_answer, self.answer, self.message = owner_id, on_answer, None, None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.owner_id:
             return True
-        await interaction.response.send_message("소유자만 승인할 수 있어요.", ephemeral=True)
+        await interaction.response.send_message("결제 승인은 요청한 본인만 할 수 있어요.", ephemeral=True)
         return False
 
-    @discord.ui.button(label="허용", style=discord.ButtonStyle.success)
-    async def allow(self, interaction: discord.Interaction, _button):
-        self.approved = True
-        await interaction.response.edit_message(content=f"{interaction.message.content}\n허용함", view=None)
+    async def decide(self, interaction, value: str):
+        if self.answer is not None:
+            return
+        self.answer = value
+        self.on_answer(value)
+        result = "✅ 결제를 진행합니다." if value == "allow" else "↩️ 결제하지 않았어요."
+        await interaction.response.edit_message(content=interaction.message.content + "\n\n" + result, view=None)
         self.stop()
 
-    @discord.ui.button(label="거부", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="결제 진행", style=discord.ButtonStyle.success)
+    async def allow(self, interaction: discord.Interaction, _button):
+        await self.decide(interaction, "allow")
+
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def deny(self, interaction: discord.Interaction, _button):
-        await interaction.response.edit_message(content=f"{interaction.message.content}\n거부함", view=None)
-        self.stop()
+        await self.decide(interaction, "deny")
+
+    async def on_timeout(self):
+        if self.answer is None and self.message is not None:
+            try:
+                await self.message.edit(content=self.message.content + "\n\n⏱️ 시간이 지나 결제하지 않았어요.", view=None)
+            except discord.HTTPException:
+                pass
 
 
 class Gateway(discord.Client):
@@ -167,14 +180,37 @@ class Gateway(discord.Client):
             sent.append(await channel.send(part, allowed_mentions=discord.AllowedMentions.none()))
         return sent
 
+    async def show_payment_request(self, channel, outbox, request):
+        from .approvals import answer, payment_text
+        view = PaymentApprovalView(self.owner_id, lambda value: answer(outbox, request["id"], value), request.get("expires_in", 60))
+        view.message = await channel.send(content=payment_text(request), view=view, allowed_mentions=discord.AllowedMentions.none())
+
+    async def watch_approvals(self, channel, outbox, interval: float = 0.5):
+        """Show each payment request from this turn's MCP worker in the request channel."""
+        from .approvals import pending_requests
+        shown = set()
+        while True:
+            for request in await asyncio.to_thread(pending_requests, outbox):
+                if request.get("id") not in shown:
+                    shown.add(request.get("id"))
+                    try:
+                        await self.show_payment_request(channel, outbox, request)
+                    except discord.HTTPException:
+                        log.warning("payment approval could not be shown; it will time out unpaid")
+            await asyncio.sleep(interval)
+
     def approver(self, channel):
         def approve(name: str, args: dict) -> bool:
+            if name != "payment":
+                return True  # Only payment waits for the owner; requests are owner-only.
             async def ask():
-                view = ApprovalView(self.owner_id)
-                approval_channel = await self.owner_dm()
-                await approval_channel.send(f"실행할까요? `{name}`\n```json\n{json.dumps(args, ensure_ascii=False)[:1500]}\n```", view=view)
+                result = asyncio.get_running_loop().create_future()
+                request = {"id": "local", **args, "expires_in": APPROVAL_TIMEOUT_SECONDS}
+                from .approvals import payment_text
+                view = PaymentApprovalView(self.owner_id, lambda value: result.done() or result.set_result(value), APPROVAL_TIMEOUT_SECONDS)
+                view.message = await channel.send(content=payment_text(request), view=view, allowed_mentions=discord.AllowedMentions.none())
                 await view.wait()
-                return view.approved
+                return result.done() and result.result() == "allow"
 
             return asyncio.run_coroutine_threadsafe(ask(), self.loop).result()
 
@@ -183,6 +219,7 @@ class Gateway(discord.Client):
     def turn(self, chat: str, text: str, approve) -> str:
         started = time.monotonic()
         self._last_topic=None
+        self._pc_managed_message=None
         metrics = TurnMetrics()
         sessions=getattr(self,'conversations',None);topic=None
         if sessions:
@@ -270,6 +307,8 @@ class Gateway(discord.Client):
                 instructions = instructions_for(self.memory, public=chat.startswith("guild:"))
                 extra={'chat_scope':chat} if getattr(engine,'supports_chat_scope',False) else {}
                 outcome = engine.run(text, instructions, history, public=chat.startswith("guild:"),**extra)
+                tracked=[r for r in outcome.receipts if r.get('tool')=='mcp__daevis__owner_control' and r.get('action')=='pc_shutdown' and r.get('tracking') is True and r.get('accepted') and str(r.get('status_message_id','')).isdigit()]
+                if tracked:self._pc_managed_message=int(tracked[-1]['status_message_id'])
                 kakao_used = kakao_used or outcome.kakao_used
                 reply = kakao_status_reply(outcome.text) if kakao_used else outcome.text
                 if not kakao_used:
@@ -287,6 +326,8 @@ class Gateway(discord.Client):
                     nonlocal kakao_used
                     if tool.name.startswith("android_") and (args.get("app") == "kakao" or any(n.get("package") == "com.kakao.talk" for n in getattr(self.android, "nodes", []))):
                         kakao_used = True
+                    from .progress import record
+                    record(current_outbox(DATA / "outbox"), tool.name, args)
                     result = tool.run(args)
                     if tool.name.startswith("android_") and ("com.kakao.talk" in str(result) or any(n.get("package") == "com.kakao.talk" for n in getattr(self.android, "nodes", []))):
                         kakao_used = True
@@ -342,8 +383,6 @@ class Gateway(discord.Client):
             await self.send_long(channel,"서버가 종료 중입니다. 대비스 온라인으로 다시 켜 주세요.")
             return
         self.last_activity = datetime.now(timezone.utc)
-        if re.fullmatch(r"(?:승인|거절) [0-9a-f]{16}",text):
-            return  # Consumed by the owner-only MCP approval broker, never a new model turn.
         if text == '네이버 로그인 재시도':
             from .login_automation import LoginImagePermission
             async with self.turn_lock:
@@ -362,7 +401,12 @@ class Gateway(discord.Client):
             pass
         status = "✅"
         turn_started=time.monotonic()
-        async with self.turn_lock, channel.typing(), async_outbox_scope(DATA/'outbox'/uuid.uuid4().hex):
+        async with self.turn_lock, channel.typing(), async_outbox_scope(DATA/'outbox'/uuid.uuid4().hex) as outbox:
+            approvals = asyncio.create_task(self.watch_approvals(channel, outbox))
+            from .progress import ProgressMessage
+            progress = ProgressMessage(channel, outbox)
+            await progress.start()
+            ticker = asyncio.create_task(progress.run())
             try:
                 chat = f"guild:{channel.id}" if message.guild is not None else str(channel.id)
                 sessions=getattr(self,'conversations',None)
@@ -374,6 +418,9 @@ class Gateway(discord.Client):
                 if reply.startswith((STEP_LIMIT_REPLY, REPEATED_ERROR_REPLY, KAKAO_NOT_RUN_REPLY, KAKAO_STATUS["KAKAO_NOT_SENT"], KAKAO_STATUS["KAKAO_RECIPIENT_REQUIRED"], "전송 결과를 확인하지 못했습니다.", "경로 조회를 완료하지 못했습니다.")):
                     status = "❌"
             except TopicChoiceRequired as error:
+                approvals.cancel()
+                ticker.cancel()
+                await progress.discard()
                 from .conversation_ui import TopicChoiceView
                 await channel.send('이전 작업을 이어갈지 새 작업인지 선택해 주세요.',view=TopicChoiceView(self,message,error.selection))
                 if pending:
@@ -384,6 +431,8 @@ class Gateway(discord.Client):
                 status="❌"
                 reply=str(error)
                 if error.outcome is not None:
+                    tracked=[r for r in error.outcome.receipts if r.get('tool')=='mcp__daevis__owner_control' and r.get('action')=='pc_shutdown' and r.get('tracking') is True and r.get('accepted') and str(r.get('status_message_id','')).isdigit()]
+                    if tracked:self._pc_managed_message=int(tracked[-1]['status_message_id'])
                     from .hermes_runner import control_status
                     proved=control_status(error.outcome.receipts)
                     if proved:reply=proved+'\n확인된 결과만 안내했습니다. 이후 처리는 완료하지 못했어요.'
@@ -396,8 +445,14 @@ class Gateway(discord.Client):
                 log.exception("turn failed")
                 status = "❌"
                 reply = "처리 중 오류가 났어요. 서버 로그를 확인해야 해요."
+            approvals.cancel()
+            ticker.cancel()
             try:
-                sent=await self.send_long(channel, reply)
+                managed=getattr(self,'_pc_managed_message',None)
+                if managed:
+                    await progress.discard()  # The PC receipt message already shows the result.
+                sent=[] if managed else await progress.finish(reply, self.send_long)
+                if managed and getattr(self,'_last_topic',None):self.conversations.link(managed,self._last_topic)
                 topic=getattr(self,'_last_topic',None)
                 if topic and getattr(self,'conversations',None):
                     self.conversations.link(getattr(message,'id',None),topic)
@@ -539,7 +594,7 @@ def main():
     model = CodexModel(CodexAuth(DATA / "codex-auth.json"), os.environ.get("AGENT_MODEL", "gpt-5.6-luna"))
     browser = PlaywrightBrowser(DATA / "sessions")
     auth = AuthGate(EnvCredentials(os.environ), browser)
-    android = AndroidControl(UiaDevice(os.environ.get("ANDROID_SERIAL")), outbox=DATA / "outbox")
+    android = AndroidControl(UiaDevice(os.environ.get("ANDROID_SERIAL")), outbox=DATA / "outbox", observe_after=True)
     tools = build_tools(memory, store) + build_android_tools(android) + [build_auth_tool(auth), build_discord_user_tool(auth, browser, os.environ["DISCORD_BOT_TOKEN"]), build_mail_tool(auth, browser, os.environ)]
     gateway = Gateway(int(os.environ["OWNER_ID"]), model, memory, tools, store, auth, android)
     auth.notify = gateway.notify_owner
