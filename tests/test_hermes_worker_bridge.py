@@ -77,3 +77,17 @@ def test_shop_screens_mentioning_kakao_pay_do_not_hide_the_answer():
     screen = '{"nodes":[{"package":"com.sampleapp","text":"카카오페이 결제","resource":"com.sampleapp:id/kakaopay_logo"}]}'
     assert not worker.kakao_activity('mcp__daevis__android_click', {'snapshot': 'a', 'index': 3}, screen)
     assert not worker.kakao_activity('mcp__daevis__web_search', {'query': 'kakao 주가'}, 'KakaoBank result')
+
+
+def test_claude_token_is_never_forwarded_to_mcp_tools():
+    worker = worker_module()
+    assert worker.forwarded_env({'DAEVIS_CLAUDE_TOKEN': 'tok', 'DAEVIS_HERMES_PROVIDER': 'anthropic'}) == {}
+
+
+def test_provider_settings_default_to_codex_and_switch_to_claude():
+    worker = worker_module()
+    codex = lambda: {'api_key': 'c', 'base_url': 'https://codex'}
+    assert worker.provider_settings({}, codex) == {'provider': 'openai-codex', 'api_key': 'c', 'base_url': 'https://codex', 'model': 'gpt-5.6-luna'}
+    claude = worker.provider_settings({'DAEVIS_HERMES_PROVIDER': 'anthropic', 'DAEVIS_CLAUDE_TOKEN': 'tok'}, codex)
+    assert claude == {'provider': 'anthropic', 'api_key': 'tok', 'base_url': 'https://api.anthropic.com',
+                      'model': 'claude-sonnet-5-5'}

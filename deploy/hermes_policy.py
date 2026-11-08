@@ -29,6 +29,15 @@ def model_failure_reason(response, max_iterations=None):
     return None
 
 
+def limit_reset_at(response):
+    """Epoch seconds when a ChatGPT usage limit resets."""
+    value=response.get('failure_resets_at')  # Hermes reports this field; the text is a fallback.
+    if isinstance(value,(int,float)) and not isinstance(value,bool) and value>0:return int(value)
+    error=str(response.get('error') or '')+' '+str(response.get('failure_reason') or '')
+    found=re.search(r"resets_at['\"]?\s*:\s*(\d{9,11})",error)
+    return int(found.group(1)) if found else None
+
+
 def _message(value):
     if isinstance(value, str):
         return value

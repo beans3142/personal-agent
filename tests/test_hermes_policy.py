@@ -146,3 +146,11 @@ def test_iteration_cap_is_reported_as_its_own_reason():
 def test_model_errors_win_over_iteration_cap():
     module = policy_module()
     assert module.model_failure_reason({'completed': False, 'api_calls': 99, 'error': 'rate limit'}, 20) == 'model_rate_limited'
+
+
+def test_usage_limit_reset_time_is_read_from_error_text():
+    module = policy_module()
+    error = "Error code: 429 - {'error': {'type': 'usage_limit_reached', 'plan_type': 'plus', 'resets_at': 1794470236}}"
+    assert module.limit_reset_at({'completed': False, 'error': error}) == 1794470236
+    assert module.limit_reset_at({'completed': False, 'error': 'rate limit'}) is None
+    assert module.limit_reset_at({'completed': False, 'error': 'HTTP 429', 'failure_resets_at': 1794470236.0}) == 1794470236

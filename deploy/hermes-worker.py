@@ -20,6 +20,16 @@ def forwarded_env(env):
         'DAEVIS_MCP_APPROVAL', 'AGENT_OUTBOX') if key in env}
 
 
+def provider_settings(env, codex):
+    # The runner sets these only for a Claude retry after a ChatGPT usage limit.
+    if env.get('DAEVIS_HERMES_PROVIDER')=='anthropic' and env.get('DAEVIS_CLAUDE_TOKEN'):
+        return {'provider':'anthropic','api_key':env['DAEVIS_CLAUDE_TOKEN'],'base_url':'https://api.anthropic.com',
+                'model':env.get('DAEVIS_CLAUDE_MODEL') or 'claude-sonnet-5-5'}
+    creds=codex()
+    return {'provider':'openai-codex','api_key':creds['api_key'],'base_url':creds['base_url'],
+            'model':env.get('AGENT_MODEL','gpt-5.6-luna')}
+
+
 def self_send_receipt(name, value):
     if name == 'mcp__daevis__kakao_self_send' and value == 'KAKAO_SENT':
         return {'tool': name, 'confirmed': True, 'recipient_is_self': True}
@@ -72,7 +82,7 @@ def main():
     kakao = [False]
     receipts=[]
     control_complete=[False]
-    from hermes_policy import MAX_ITERATIONS, TurnGuard, model_failure_reason
+    from hermes_policy import MAX_ITERATIONS, TurnGuard, limit_reset_at, model_failure_reason
     guard=TurnGuard()
     active=[None]
     def interrupt(reason):
@@ -103,7 +113,10 @@ def main():
             if control_receipt.get('action')=='server_stop':
                 control_complete[0]=True;interrupt('owner_control_complete')
     with contextlib.redirect_stdout(sys.stderr):
+        # Hermes may re-exec this script while importing, so read the provider
+        # settings only afterwards, then drop the Claude token before MCP starts.
         from run_agent import AIAgent
+        provider_env={k:os.environ.pop(k) for k in ('DAEVIS_HERMES_PROVIDER','DAEVIS_CLAUDE_TOKEN','DAEVIS_CLAUDE_MODEL') if k in os.environ}
         from hermes_cli.auth_codex import resolve_codex_runtime_credentials
         from tools.mcp_tool_discovery import register_mcp_servers
         payload = json.load(sys.stdin)
@@ -113,9 +126,8 @@ def main():
         if not discovered:
             raise RuntimeError('daevis MCP tools unavailable')
         emit({'type':'tools','tools':discovered,'public':os.environ.get('DAEVIS_MCP_PUBLIC')=='1'})
-        creds = resolve_codex_runtime_credentials()
-        agent = AIAgent(provider='openai-codex',api_key=creds['api_key'],base_url=creds['base_url'],
-                        model=os.environ.get('AGENT_MODEL','gpt-5.6-luna'), enabled_toolsets=['mcp-daevis'],
+        settings = provider_settings({**provider_env,'AGENT_MODEL':os.environ.get('AGENT_MODEL','gpt-5.6-luna')},resolve_codex_runtime_credentials)
+        agent = AIAgent(**settings, enabled_toolsets=['mcp-daevis'],
                         max_iterations=MAX_ITERATIONS, max_tokens=1500, run_budget_seconds=270,
                         quiet_mode=True, skip_context_files=True, skip_memory=True,
                         skip_background_review=True, load_soul_identity=False,
@@ -129,7 +141,8 @@ def main():
           'input_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_input_tokens',None),
           'output_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_output_tokens',None),
           'model_calls':response.get('api_calls'),'tool_calls':calls[0],
-          'model':str(getattr(agent,'model','미제공'))+' (설정)','receipts':receipts})
+          'model':str(getattr(agent,'model','미제공'))+' (설정)','receipts':receipts,
+          'provider':settings['provider'],'resets_at':limit_reset_at(response) if reason=='usage_limit_reached' else None})
 
 if __name__=='__main__':
     try: main()

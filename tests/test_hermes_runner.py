@@ -84,3 +84,84 @@ def test_iteration_limit_without_summary_is_still_a_failure():
     with pytest.raises(HermesError) as e:
         parse_events('{"type":"result","completed":false,"stop_reason":"iteration_limit","text":"","model_calls":20}')
     assert "단계 한도" in str(e.value)
+
+
+def _limit(tool_calls=0, kakao=False, resets_at=1794470236):
+    return json.dumps({"type":"result","completed":False,"stop_reason":"usage_limit_reached","tool_calls":tool_calls,
+                       "kakao_used":kakao,"resets_at":resets_at,"model":"gpt (설정)"})
+
+
+def _ok(text="claude answer"):
+    return json.dumps({"type":"result","completed":True,"text":text,"model_calls":1,"model":"claude-sonnet-5-5 (설정)"})
+
+
+def _scripted(*stdouts):
+    calls=[]
+    def run(argv, **kwargs):
+        calls.append(kwargs["env"])
+        return SimpleNamespace(returncode=0, stdout=stdouts[len(calls)-1], stderr="")
+    return run, calls
+
+
+def test_usage_limit_message_names_chatgpt_and_reset_time_in_kst():
+    from agent.hermes_runner import HermesError
+    with pytest.raises(HermesError) as e:
+        parse_events(_limit())
+    assert 'ChatGPT' in str(e.value) and '11/12 16:57' in str(e.value)
+
+
+def test_usage_limit_without_tools_falls_back_to_claude_once(tmp_path):
+    run, calls = _scripted(_limit(), _ok())
+    runner = HermesRunner("p", "w", data=tmp_path, env={"OWNER_ID":"1"}, run=run, claude_token=lambda: "tok")
+    out = runner.run("hi", "system", [])
+    assert out.text == "claude answer"
+    assert len(calls) == 2
+    assert "DAEVIS_HERMES_PROVIDER" not in calls[0] and "DAEVIS_CLAUDE_TOKEN" not in calls[0]
+    assert calls[1]["DAEVIS_HERMES_PROVIDER"] == "anthropic" and calls[1]["DAEVIS_CLAUDE_TOKEN"] == "tok"
+    assert calls[0]["DAEVIS_MCP_REQUEST_ID"] != calls[1]["DAEVIS_MCP_REQUEST_ID"]
+    assert "ChatGPT 한도" in out.footer(1.0)
+
+
+def test_no_fallback_after_tools_ran_to_avoid_double_actions(tmp_path):
+    from agent.hermes_runner import HermesError
+    run, calls = _scripted(_limit(tool_calls=1))
+    runner = HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok")
+    with pytest.raises(HermesError) as e:
+        runner.run("hi", "system", [])
+    assert len(calls) == 1 and '자동 재시도하지 않습니다' in str(e.value)
+
+
+def test_no_fallback_after_kakao_activity(tmp_path):
+    from agent.hermes_runner import HermesError
+    run, calls = _scripted(_limit(kakao=True))
+    runner = HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok")
+    with pytest.raises(HermesError):
+        runner.run("hi", "system", [])
+    assert len(calls) == 1
+
+
+def test_no_fallback_without_claude_token(tmp_path):
+    from agent.hermes_runner import HermesError
+    run, calls = _scripted(_limit())
+    with pytest.raises(HermesError):
+        HermesRunner("p", "w", data=tmp_path, env={}, run=run).run("hi", "system", [])
+    assert len(calls) == 1
+
+
+def test_token_lookup_failure_keeps_original_limit_message(tmp_path):
+    from agent.hermes_runner import HermesError
+    run, calls = _scripted(_limit())
+    def broken(): raise RuntimeError("ssm down secret")
+    with pytest.raises(HermesError) as e:
+        HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=broken).run("hi", "system", [])
+    assert len(calls) == 1 and 'ChatGPT' in str(e.value) and 'secret' not in str(e.value)
+
+
+def test_claude_fallback_failure_reports_both(tmp_path):
+    from agent.hermes_runner import HermesError
+    failed = json.dumps({"type":"result","completed":False,"stop_reason":"model_auth_failed","tool_calls":0})
+    run, calls = _scripted(_limit(), failed)
+    with pytest.raises(HermesError) as e:
+        HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
+    assert len(calls) == 2
+    assert 'ChatGPT' in str(e.value) and 'Claude' in str(e.value)
