@@ -378,8 +378,8 @@ class Gateway(discord.Client):
         if not text:
             return
         from .pc_wake import pc_power_command
-        from .pc_control import parse_pc_command
-        if power_command(text) or pc_power_command(text) or parse_pc_command(text) or text in ('브리핑 설정','보고서 설정','브리핑 웹 설정'):
+        from .pc_control import parse_pc_command, parse_phone_command
+        if power_command(text) or pc_power_command(text) or parse_pc_command(text) or parse_phone_command(text) or text in ('브리핑 설정','보고서 설정','브리핑 웹 설정'):
             sessions=getattr(self,'conversations',None)
             if sessions and (power_command(text) or pc_power_command(text) or parse_pc_command(text)):
                 scope=f'guild:{channel.id}' if message.guild is not None else str(channel.id)

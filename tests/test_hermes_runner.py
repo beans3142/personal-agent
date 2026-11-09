@@ -165,3 +165,21 @@ def test_claude_fallback_failure_reports_both(tmp_path):
         HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
     assert len(calls) == 2
     assert 'ChatGPT' in str(e.value) and 'Claude' in str(e.value)
+
+
+def test_expired_chatgpt_login_also_falls_back_to_claude(tmp_path):
+    expired = json.dumps({"type":"result","completed":False,"stop_reason":"model_auth_failed","tool_calls":0,"model":"gpt (설정)"})
+    run, calls = _scripted(expired, _ok())
+    out = HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
+    assert out.text == "claude answer" and len(calls) == 2
+    assert calls[1]["DAEVIS_HERMES_PROVIDER"] == "anthropic"
+    assert "로그인" in out.fallback
+
+
+def test_expired_login_after_a_tool_ran_is_not_retried(tmp_path):
+    from agent.hermes_runner import HermesError
+    expired = json.dumps({"type":"result","completed":False,"stop_reason":"model_auth_failed","tool_calls":1})
+    run, calls = _scripted(expired, _ok())
+    with pytest.raises(HermesError):
+        HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
+    assert len(calls) == 1

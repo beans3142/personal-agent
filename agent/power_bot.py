@@ -16,7 +16,7 @@ import discord
 from .power import PowerControl, power_command
 from .pc_wake import pc_power_command, wake_pc
 from pathlib import Path
-from .pc_control import PCRegistry, parse_pc_command, pc_handler, BASE
+from .pc_control import PCRegistry, parse_pc_command, parse_phone_command, pc_handler, BASE
 
 log = logging.getLogger("power")
 BOOT_NOTE = "본체 Agent가 Discord에 접속하기까지 1~3분 더 걸려요."
@@ -61,6 +61,14 @@ class PowerBot(discord.Client):
             if self.user is None or not re.search(rf"<@!?{self.user.id}>", text):
                 return
             text = re.sub(rf"<@!?{self.user.id}>", "", text).strip()
+        phone_command = parse_phone_command(text)
+        if phone_command and getattr(self,'pc_registry',None):
+            try:
+                await self.handle_phone(message, *phone_command)
+            except Exception:
+                log.exception('phone request failed')
+                await message.channel.send('폰 요청을 처리하지 못했어요. 전화가 걸렸는지 폰에서 확인해 주세요.')
+            return
         pc_command = parse_pc_command(text)
         if text in ('브리핑 설정','보고서 설정','브리핑 웹 설정') and getattr(self,'control_store',None):
             from .brief_controls import BriefView
@@ -98,6 +106,25 @@ class PowerBot(discord.Client):
             except Exception:
                 log.exception("power command failed")
                 await message.channel.send("전원 명령을 처리하지 못했어요. 전원 봇 로그를 확인해야 해요.")
+
+    async def handle_phone(self,message,action,value):
+        if action=='register':
+            try:
+                code=await asyncio.to_thread(self.pc_registry.invite,value,'phone')
+            except ValueError:
+                await message.channel.send('이미 등록된 폰 이름이에요. 다른 이름으로 `폰 등록 이름`을 보내 주세요.')
+                return
+            owner=await self.fetch_user(self.owner_id);dm=await owner.create_dm()
+            command="curl -fsSL "+BASE+"/phone-install.sh | bash -s -- "+code
+            await dm.send(value+' 등록: **폰의 Termux**에 아래 한 줄을 붙여넣으세요. 15분간 한 번만 쓸 수 있어요. 연락처 검색과 전화 걸기 권한만 연결합니다.\n```bash\n'+command+'\n```')
+            if message.guild is not None:await message.channel.send('폰 등록 명령을 본인 DM으로 보냈어요.')
+            return
+        if action=='remove':
+            removed=await asyncio.to_thread(self.pc_registry.remove_phones)
+            await message.channel.send((', '.join(removed)+' 등록을 해제했어요. 폰의 연결 프로그램은 더 이상 요청을 받지 못해요.') if removed else '등록된 폰이 없어요.')
+            return
+        from .phone_discord import handle_phone_call
+        await handle_phone_call(self,message,value)
 
     async def confirm_pc_shutdown(self,label):
         from .pc_discord import confirm_shutdown

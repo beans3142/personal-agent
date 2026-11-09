@@ -15,6 +15,7 @@ Read receipt: python device-node.py --config node.json --status-id RECEIPT_ID
 text_message prints one JSON line in the receiving terminal/service journal;
 it does not invoke a notification or guarantee that a person saw the message.
 Phone requires Termux + Termux:API app and termux-api package with notification
+(phone_alarm) or contacts/phone permission (phone_call, needs allow_phone_call).
 permission. phone_alarm is an immediate sound notification, NOT a clock alarm.
 Android Doze/notification settings may prevent timely/audible delivery.
 WoL node must remain on in the target LAN; packet send does not prove PC boot.
@@ -57,6 +58,71 @@ def magic_packet(mac):
     return b'\xff' * 6 + bytes.fromhex(mac.replace(':', '')) * 16
 
 
+def _digits(number):
+    digits = re.sub(r'\D', '', number or '')
+    return '0' + digits[2:] if digits.startswith('82') and len(digits) > 9 else digits
+
+
+def mask_number(number):
+    digits = _digits(number)
+    if len(digits) < 8:
+        return '***'
+    head = digits[:2] if digits.startswith('02') else digits[:3]
+    return head + '-****-' + digits[-4:]
+
+
+def _normalize_name(name):
+    return re.sub(r'\s+', '', name or '').casefold()
+
+
+def phone_call_action(payload, config, run=subprocess.run, which=shutil.which, clock=time.time):
+    """Find a contact on the phone and call it; numbers never leave the phone unmasked."""
+    if config.get('allow_phone_call') is not True or 'phone_call' not in config.get('actions', []):
+        raise ValueError('phone calls not explicitly enabled')
+    if not isinstance(payload, dict) or len(payload) != 1 or not (
+            isinstance(payload.get('name'), str) and 1 <= len(payload['name'].strip()) <= 40 or
+            isinstance(payload.get('token'), str) and re.fullmatch(r'[0-9a-f]{8}', payload['token'])):
+        raise ValueError('invalid phone call request')
+    call_tool, list_tool = which('termux-telephony-call'), which('termux-contact-list')
+    if not call_tool or not list_tool:
+        raise OSError('Termux:API is not installed')
+    choices = config.setdefault('_choices', {})
+    for token in [t for t, (_, _, expires) in choices.items() if expires <= clock()]:
+        choices.pop(token)
+
+    def dial(name, number):
+        if len(_digits(number)) < 8:
+            return {'status': 'blocked'}  # Emergency and short numbers are never dialed here.
+        run([call_tool, _digits(number)], check=True, timeout=20, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {'status': 'called', 'name': name, 'number': mask_number(number)}
+
+    if 'token' in payload:
+        if payload['token'] not in choices:
+            raise ValueError('choice expired')
+        name, number, _ = choices.pop(payload['token'])
+        return dial(name, number)
+    listed = run([list_tool], check=True, timeout=30, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    contacts = json.loads(listed.stdout or '[]')
+    unique = {}
+    for contact in contacts if isinstance(contacts, list) else []:
+        if isinstance(contact, dict) and isinstance(contact.get('name'), str) and isinstance(contact.get('number'), str):
+            unique.setdefault((contact['name'].strip(), _digits(contact['number'])), contact)
+    query = _normalize_name(payload['name'])
+    exact = [c for (name, _), c in unique.items() if _normalize_name(name) == query]
+    if len(exact) == 1:
+        return dial(exact[0]['name'].strip(), exact[0]['number'])
+    matches = exact or [c for (name, _), c in unique.items() if query in _normalize_name(name)]
+    if not matches:
+        return {'status': 'not_found'}
+    candidates = []
+    for contact in matches[:5]:
+        token = os.urandom(4).hex()
+        choices[token] = (contact['name'].strip(), contact['number'], clock() + 300)
+        candidates.append({'token': token, 'name': contact['name'].strip(), 'number': mask_number(contact['number'])})
+    return {'status': 'choose', 'candidates': candidates}
+
+
 def execute_action(job, config):
     action, payload = job['action'], job['payload']
     if action not in config.get('actions', []):
@@ -85,6 +151,8 @@ def execute_action(job, config):
                         '--content', payload['text'], '--sound', '--priority', 'high'],
                        check=True, timeout=20, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif action == 'phone_call':
+        return phone_call_action(payload, config)
     elif action == 'wol':
         if payload:
             raise ValueError('remote WoL targets are not accepted')
@@ -142,11 +210,13 @@ def run_once(config, state):
         if found:
             return
         state.execute('INSERT INTO journal VALUES(?,?,0)', (job['id'], 'running'))
+    result = None
     if job['expires'] <= time.time():
         status = 'expired'
     else:
+        result = None
         try:
-            execute_action(job, config)
+            result = execute_action(job, config)
             status = 'succeeded'
         except subprocess.TimeoutExpired:
             status = 'uncertain'
@@ -154,7 +224,10 @@ def run_once(config, state):
             status = 'failed'
     with state:
         state.execute('UPDATE journal SET status=? WHERE id=?', (status, job['id']))
-    post(config, '/ack', {'node': config['node'], 'id': job['id'], 'status': status})
+    ack = {'node': config['node'], 'id': job['id'], 'status': status}
+    if isinstance(result, dict):
+        ack['result'] = result  # Small, already-masked summary (e.g. call candidates).
+    post(config, '/ack', ack)
     with state:
         state.execute('UPDATE journal SET acknowledged=1 WHERE id=?', (job['id'],))
 

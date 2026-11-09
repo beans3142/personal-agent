@@ -10,6 +10,19 @@ from .device_nodes import DeviceStore, handler_for
 
 BASE='https://game.daehoon.games/pc-power'
 CAPABILITIES=['text_message','pc_shutdown','pc_cancel_shutdown']
+PHONE_CAPABILITIES=['phone_call']
+
+
+def parse_phone_command(text):
+    """'엄마에게 전화 걸어줘' / '폰 등록 [이름]'. Calls name a person, never a number."""
+    text=re.sub(r'^(?:대비스|자비스|데비스)\s*','',text.strip(),flags=re.I)
+    if re.fullmatch(r'(?:휴대\s*폰|핸드폰|폰|모바일)\s*(?:등록\s*)?(?:해제|삭제)',text):return 'remove',None
+    m=re.fullmatch(r'(?:휴대\s*폰|핸드폰|폰|모바일)\s*등록(?:\s+(.{1,24}))?',text)
+    if m:return 'register',(m[1] or '내 폰').strip()
+    m=re.fullmatch(r'(.{1,40}?)\s*(?:에게|한테|께)\s*(?:전화|통화)\s*(?:좀\s*)?(?:걸어\s*줘|걸어\s*주세요|해\s*줘|해\s*주세요|걸어|해|부탁해)?',text)
+    if not m:return None
+    name=m[1].strip()
+    return ('call',name) if name and not re.search(r'\d{3,}',name) else None
 
 
 def parse_pc_command(text):
@@ -39,7 +52,10 @@ class PCRegistry(DeviceStore):
                 CREATE TABLE IF NOT EXISTS pc_invites(digest TEXT PRIMARY KEY,label TEXT,expires REAL);
                 CREATE TABLE IF NOT EXISTS pc_shutdowns(job TEXT PRIMARY KEY,accepted REAL,cancel_id TEXT);
                 CREATE TABLE IF NOT EXISTS pc_displays(job TEXT PRIMARY KEY,channel TEXT,message TEXT,finished INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS phones(alias TEXT PRIMARY KEY,label TEXT,node TEXT UNIQUE);
             ''')
+            if 'kind' not in {r['name'] for r in db.execute('PRAGMA table_info(pc_invites)')}:
+                db.execute("ALTER TABLE pc_invites ADD COLUMN kind TEXT DEFAULT 'pc'")
 
     @staticmethod
     def alias(label):
@@ -48,14 +64,15 @@ class PCRegistry(DeviceStore):
         if value in {'서버','server','비서','본체','대비스','자비스','pc','내pc','컴퓨터','내컴퓨터'}:raise ValueError('reserved PC label')
         return value
 
-    def invite(self,label):
-        alias=self.alias(label)
+    def invite(self,label,kind='pc'):
+        if kind not in ('pc','phone'):raise ValueError('invalid device kind')
+        alias=self.alias(label);table='pcs' if kind=='pc' else 'phones'
         with self._db() as db:
-            if db.execute('SELECT 1 FROM pcs WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')
-            if db.execute('SELECT count(*) FROM pcs').fetchone()[0]>=16:raise ValueError('PC registration limit')
+            if db.execute(f'SELECT 1 FROM {table} WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')
+            if db.execute(f'SELECT count(*) FROM {table}').fetchone()[0]>=(16 if kind=='pc' else 4):raise ValueError('registration limit')
             db.execute('DELETE FROM pc_invites WHERE label=? OR expires<=?',(label,self.clock()))
             code=secrets.token_urlsafe(32)
-            db.execute('INSERT INTO pc_invites VALUES(?,?,?)',(hashlib.sha256(code.encode()).hexdigest(),label.strip(),self.clock()+900))
+            db.execute('INSERT INTO pc_invites(digest,label,expires,kind) VALUES(?,?,?,?)',(hashlib.sha256(code.encode()).hexdigest(),label.strip(),self.clock()+900,kind))
         return code
 
     def redeem(self,code):
@@ -66,6 +83,13 @@ class PCRegistry(DeviceStore):
             invitation=db.execute('SELECT * FROM pc_invites WHERE digest=? AND expires>?',(digest,self.clock())).fetchone()
             if not invitation:raise ValueError('registration expired or used')
             label=invitation['label'];alias=self.alias(label)
+            if (invitation['kind'] or 'pc')=='phone':
+                if db.execute('SELECT 1 FROM phones WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')
+                token=secrets.token_urlsafe(32);node='phone-'+secrets.token_hex(8)
+                db.execute('INSERT INTO nodes(name,digest,capabilities) VALUES(?,?,?)',(node,hashlib.sha256(token.encode()).hexdigest(),json.dumps(PHONE_CAPABILITIES)))
+                db.execute('INSERT INTO phones VALUES(?,?,?)',(alias,label,node))
+                db.execute('DELETE FROM pc_invites WHERE digest=?',(digest,))
+                return {'node':node,'token':token,'label':label,'url':BASE,'actions':PHONE_CAPABILITIES}
             if db.execute('SELECT 1 FROM pcs WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')
             if db.execute('SELECT count(*) FROM pcs').fetchone()[0]>=16:raise ValueError('PC registration limit')
             token=secrets.token_urlsafe(32);node='pc-'+secrets.token_hex(8)
@@ -126,8 +150,31 @@ class PCRegistry(DeviceStore):
                 db.execute("INSERT INTO pc_shutdowns(job,cancel_id) SELECT id,? FROM jobs WHERE node=? AND action='pc_shutdown' AND status IN ('dispatched','succeeded') ON CONFLICT(job) DO UPDATE SET cancel_id=excluded.cancel_id",(job['id'],pc['node']))
         return {**job,'label':pc['label'],'node':pc['node']}
 
-    def ack(self,node,token,job_id,status):
-        super().ack(node,token,job_id,status)
+    def phone_inventory(self):
+        states={n['name']:n for n in self.list_nodes()}
+        with self._db() as db:phones=[dict(r) for r in db.execute('SELECT * FROM phones ORDER BY label')]
+        return [{**p,'online':bool(states.get(p['node'],{}).get('enabled') and states.get(p['node'],{}).get('last_seen')
+                    and self.clock()-states[p['node']]['last_seen']<=20)} for p in phones]
+
+    def remove_phones(self):
+        with self._db() as db:rows=[dict(r) for r in db.execute('SELECT * FROM phones')]
+        for row in rows:self.revoke(row['node'])
+        with self._db() as db:db.execute('DELETE FROM phones')
+        return [r['label'] for r in rows]
+
+    def phone_call(self,label,payload,request_key):
+        with self._db() as db:
+            rows=[dict(r) for r in db.execute('SELECT * FROM phones ORDER BY label')]
+            if label is not None:rows=[r for r in rows if r['alias']==self.alias(label)]
+            if not rows:raise ValueError('no phone registered; use 폰 등록')
+            phone=rows[0]
+            node=db.execute('SELECT seen,digest FROM nodes WHERE name=?',(phone['node'],)).fetchone()
+            if not node or not node['digest'] or not node['seen'] or self.clock()-node['seen']>20:raise ValueError('phone offline')
+        job=self.enqueue(phone['node'],'phone_call',payload,request_key,25)
+        return {**job,'label':phone['label'],'node':phone['node']}
+
+    def ack(self,node,token,job_id,status,result=None):
+        super().ack(node,token,job_id,status,result)
         if status=='succeeded':
             with self._db() as db:
                 row=db.execute("SELECT action FROM jobs WHERE id=?",(job_id,)).fetchone()
@@ -194,7 +241,7 @@ def pc_handler(registry,public_dir):
     parent=handler_for(registry)
     class Handler(parent):
         def do_GET(self):
-            filenames={'/client.py':'device-node.py','/install.ps1':'install-pc.ps1'}
+            filenames={'/client.py':'device-node.py','/install.ps1':'install-pc.ps1','/phone-install.sh':'install-phone.sh'}
             if self.path not in filenames:self.send_error(404);return
             data=(Path(public_dir)/filenames[self.path]).read_bytes()
             self.send_response(200);self.send_header('Content-Type','text/plain; charset=utf-8')

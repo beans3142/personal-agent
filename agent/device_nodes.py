@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.loop import Tool
 
-ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown'})
+ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call'})
 
 
 def validate_bind_address(value):
@@ -50,7 +50,7 @@ class DeviceStore:
                   source TEXT, target TEXT, action TEXT, PRIMARY KEY(source,target,action));
             ''')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
-            for name in ('issuer', 'issuer_key'):
+            for name in ('issuer', 'issuer_key', 'result'):
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} TEXT')
             db.execute('CREATE UNIQUE INDEX IF NOT EXISTS job_issuer_key ON jobs(issuer,issuer_key) WHERE issuer IS NOT NULL')
@@ -154,6 +154,11 @@ class DeviceStore:
         if action in {'phone_alarm', 'text_message'}:
             if set(payload) != {'text'} or not isinstance(payload['text'], str) or not 1 <= len(payload['text']) <= 240:
                 raise ValueError('message requires text (1..240 chars) only')
+        elif action == 'phone_call':
+            # A contact name or a choice token from the phone; never a raw number.
+            if not (set(payload) == {'name'} and isinstance(payload['name'], str) and 1 <= len(payload['name'].strip()) <= 40
+                    or set(payload) == {'token'} and isinstance(payload['token'], str) and re.fullmatch(r'[0-9a-f]{8}', payload['token'])):
+                raise ValueError('phone_call requires a contact name or choice token')
         elif payload:
             raise ValueError('wol uses only the node-local configured target')
         if not isinstance(request_key, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,80}', request_key):
@@ -211,15 +216,28 @@ class DeviceStore:
                             payload=json.loads(row['payload']), expires=row['expires'])
         return None
 
-    def ack(self, node, token, job_id, status):
+    def ack(self, node, token, job_id, status, result=None):
         self._auth(node, token)
         if status not in {'succeeded', 'failed', 'uncertain', 'expired'}:
             raise ValueError('invalid result status')
+        encoded = None
+        if result is not None:
+            encoded = json.dumps(result, ensure_ascii=False)
+            if not isinstance(result, dict) or len(encoded) > 2048:
+                raise ValueError('invalid job result')
         with self._db() as db:
             row = db.execute('SELECT status FROM jobs WHERE id=? AND node=?', (job_id, node)).fetchone()
             if not row or row['status'] not in {'dispatched', 'uncertain', status}:
                 raise ValueError('invalid acknowledgement')
-            db.execute('UPDATE jobs SET status=? WHERE id=? AND node=?', (status, job_id, node))
+            db.execute('UPDATE jobs SET status=?, result=COALESCE(?, result) WHERE id=? AND node=?', (status, encoded, job_id, node))
+
+    def job_result(self, job_id):
+        with self._db() as db:
+            self._expire(db)
+            row = db.execute('SELECT status, result FROM jobs WHERE id=?', (job_id,)).fetchone()
+        if not row:
+            return {'status': 'unknown', 'result': None}
+        return {'status': row['status'], 'result': json.loads(row['result']) if row['result'] else None}
 
 
 def build_device_tools(data_path, env=None):
@@ -258,8 +276,8 @@ def handler_for(store):
                 token = authorization[7:]
                 if self.path == '/poll' and set(body) == {'node'}:
                     result = {'job': store.poll(body['node'], token)}
-                elif self.path == '/ack' and set(body) == {'node', 'id', 'status'}:
-                    store.ack(body['node'], token, body['id'], body['status'])
+                elif self.path == '/ack' and set(body) in ({'node', 'id', 'status'}, {'node', 'id', 'status', 'result'}):
+                    store.ack(body['node'], token, body['id'], body['status'], body.get('result'))
                     result = {'ok': True}
                 elif self.path == '/request' and set(body) in ({'node', 'target', 'action', 'payload', 'request_key'}, {'node', 'target', 'action', 'payload', 'request_key', 'ttl_seconds'}):
                     result = store.request(body['node'], token, body['target'], body['action'], body['payload'], body['request_key'], body.get('ttl_seconds', 120))

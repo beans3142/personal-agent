@@ -158,9 +158,9 @@ class HermesRunner:
             return self._attempt(text, instructions, history, public, owner_request, chat_scope)
         except HermesError as error:
             first=error.outcome
-            # Retry with Claude only when the model never acted: no tool ran and
+            # Retry with Claude (ChatGPT limit or expired login) only when the model never acted: no tool ran and
             # no Kakao screen was touched, so a second run cannot duplicate a send.
-            if (first is None or first.stop_reason not in ('usage_limit_reached','model_rate_limited')
+            if (first is None or first.stop_reason not in ('usage_limit_reached','model_rate_limited','model_auth_failed')
                     or first.tool_calls or first.kakao_used or self.claude_token is None):
                 raise
             try:
@@ -174,7 +174,10 @@ class HermesRunner:
             except HermesError as second:
                 raise HermesError(str(error)+'\nClaude로 다시 시도했지만 실패했어요. '+str(second), second.outcome) from None
             label=reset_label(first.resets_at)
-            result.fallback='ChatGPT 한도로 Claude가 처리'+(f' (ChatGPT {label} 복구)' if label else '')
+            if first.stop_reason=='model_auth_failed':
+                result.fallback='ChatGPT 로그인 만료로 Claude가 처리'
+            else:
+                result.fallback='ChatGPT 한도로 Claude가 처리'+(f' (ChatGPT {label} 복구)' if label else '')
             return result
 
     def _attempt(self, text, instructions, history, public, owner_request, chat_scope, provider=None):

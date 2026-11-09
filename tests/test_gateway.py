@@ -354,3 +354,9 @@ def test_phone_screenshot_is_dropped_but_route_map_kept(tmp_path, monkeypatch):
     asyncio.run(Gateway.send_outbox(SimpleNamespace(), channel))
     assert channel.send.await_count == 1
     assert not (tmp_path / "android.png").exists()
+
+
+def test_phone_call_commands_are_left_to_the_always_on_power_bot():
+    bot, _, calls = gateway()
+    asyncio.run(Gateway.on_message(bot, message(content="<@9> 엄마한테 전화 걸어줘")))
+    assert not calls
