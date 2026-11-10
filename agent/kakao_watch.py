@@ -24,6 +24,33 @@ class KakaoRecipientUnavailable(ValueError):
     """No draft/send was attempted; read-only recipient lookup may follow."""
 
 
+class KakaoSendBlocked(ValueError):
+    """An earlier send never confirmed; the owner must check it before new sends."""
+
+
+def unlock_direct_send(data_dir):
+    """Owner reviewed the unconfirmed send: keep its record, allow new sends.
+
+    Returns when the stuck send started (file time), or None if nothing was locked.
+    """
+    journal = Path(data_dir) / 'kakao-direct-send.json'
+    lock = journal.with_suffix('.lock')
+    try:
+        previous = json.loads(journal.read_text())
+    except (OSError, ValueError):
+        previous = {}
+    if previous.get('status') != 'pending' and not lock.exists():
+        return None
+    started = datetime.fromtimestamp(journal.stat().st_mtime, timezone.utc) if journal.exists() else datetime.now(timezone.utc)
+    if previous.get('status') == 'pending':
+        temp = journal.with_suffix('.tmp')
+        temp.write_text(json.dumps({**previous, 'status': 'reviewed'}))
+        os.chmod(temp, 0o600)
+        os.replace(temp, journal)
+    lock.unlink(missing_ok=True)
+    return started
+
+
 def observed_group_members(xml, room):
     root = ET.fromstring(xml)
     titles = [n.get('content-desc') or n.get('text') for n in root.iter('node') if n.get('resource-id') == PREFIX+'toolbar_default_title_text']
@@ -319,12 +346,12 @@ class KakaoWatcher:
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
-            raise ValueError('previous direct send locked; outcome uncertain') from None
+            raise KakaoSendBlocked('previous direct send locked; outcome uncertain') from None
         os.close(fd)
         try:
             previous = json.loads(journal.read_text()) if journal.exists() else {}
             if previous.get('status') == 'pending':
-                raise ValueError('previous direct send uncertain; owner review required')
+                raise KakaoSendBlocked('previous direct send uncertain; owner review required')
             digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, text, room_type, mention], ensure_ascii=False).encode()).hexdigest()
             completed = previous.get('completed', [])[-255:]
             if digest in completed:
@@ -437,6 +464,8 @@ def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candida
             watcher.send_once(args['recipient'], args['text'], request_id=trusted_id, room_type=args.get('room_type', 'individual'), mention=args.get('mention'))
         except KakaoRecipientUnavailable:
             return 'KAKAO_RECIPIENT_REQUIRED'
+        except KakaoSendBlocked:
+            return 'KAKAO_BLOCKED'
         return 'KAKAO_SENT'
     def find(args):
         result = watcher.find_candidates(args['query'])

@@ -286,3 +286,41 @@ def test_verified_unsent_recovery_backlog_is_processed(tmp_path):
     received=[]
     watch.tick(datetime(2026,11,2,12,tzinfo=timezone.utc),lambda event:received.extend(event['incoming']))
     assert received == [waiting] and not watch.load().get('backlog')
+
+
+def test_unconfirmed_earlier_send_blocks_with_a_specific_reason(tmp_path):
+    import json
+    from agent.kakao_watch import KakaoSendBlocked
+    (tmp_path / 'kakao-direct-send.json').write_text(json.dumps({'status': 'pending', 'request_hash': 'x', 'completed': []}))
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    watch.search_chat = lambda state: pytest.fail('must not search while blocked')
+    with pytest.raises(KakaoSendBlocked):
+        watch.send_once('someone', 'hi')
+
+
+def test_owner_unlock_clears_only_a_pending_send(tmp_path):
+    import json
+    from agent.kakao_watch import unlock_direct_send
+    journal = tmp_path / 'kakao-direct-send.json'
+    assert unlock_direct_send(tmp_path) is None
+    journal.write_text(json.dumps({'status': 'pending', 'request_hash': 'x', 'completed': ['a']}))
+    (tmp_path / 'kakao-direct-send.lock').write_text('')
+    stamp = unlock_direct_send(tmp_path)
+    assert stamp is not None
+    data = json.loads(journal.read_text())
+    assert data['status'] == 'reviewed' and data['completed'] == ['a']
+    assert not (tmp_path / 'kakao-direct-send.lock').exists()
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    sent = []
+    watch.search_chat = lambda state: None
+    watch.send_text = lambda state, text, **kw: sent.append(text)
+    watch.send_once('someone', 'hi')
+    assert sent == ['hi']
+
+
+def test_kakao_tool_reports_blocked_instead_of_a_generic_error(tmp_path):
+    import json
+    from agent.kakao_watch import build_kakao_send_tools
+    (tmp_path / 'kakao-direct-send.json').write_text(json.dumps({'status': 'pending', 'request_hash': 'x', 'completed': []}))
+    send = build_kakao_send_tools(None, tmp_path)[0]
+    assert send.run({'recipient': 'someone', 'text': 'hi'}) == 'KAKAO_BLOCKED'

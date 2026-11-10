@@ -360,3 +360,19 @@ def test_phone_call_commands_are_left_to_the_always_on_power_bot():
     bot, _, calls = gateway()
     asyncio.run(Gateway.on_message(bot, message(content="<@9> 엄마한테 전화 걸어줘")))
     assert not calls
+
+
+def test_blocked_kakao_reply_tells_the_owner_how_to_unlock():
+    assert '카톡 잠금 해제' in kakao_status_reply('KAKAO_BLOCKED')
+
+
+def test_owner_can_unlock_a_stuck_kakao_send_without_a_model(tmp_path, monkeypatch):
+    import json
+    import agent.gateway as gw
+    monkeypatch.setattr(gw, 'DATA', tmp_path)
+    (tmp_path / 'kakao-direct-send.json').write_text(json.dumps({'status': 'pending', 'request_hash': 'x', 'completed': []}))
+    bot, _, calls = gateway()
+    msg = message(content='카톡 잠금 해제', guild=False)
+    asyncio.run(Gateway.on_message(bot, msg))
+    assert not calls and '잠금을 풀었어요' in msg.channel.send.await_args.args[0]
+    assert json.loads((tmp_path / 'kakao-direct-send.json').read_text())['status'] == 'reviewed'
