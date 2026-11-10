@@ -324,3 +324,28 @@ def test_kakao_tool_reports_blocked_instead_of_a_generic_error(tmp_path):
     (tmp_path / 'kakao-direct-send.json').write_text(json.dumps({'status': 'pending', 'request_hash': 'x', 'completed': []}))
     send = build_kakao_send_tools(None, tmp_path)[0]
     assert send.run({'recipient': 'someone', 'text': 'hi'}) == 'KAKAO_BLOCKED'
+
+
+def test_recipient_with_extra_spaces_is_retried_without_them(tmp_path):
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    searched, sent = [], []
+    def search(state):
+        searched.append(state['room'])
+        if ' ' in state['room']:
+            raise ValueError('no exact search result')
+    watch.search_chat = search
+    watch.send_text = lambda state, text, **kw: sent.append((state['room'], text))
+    watch.send_once('반수의 신', 'hi')
+    assert searched == ['반수의 신', '반수의신'] and sent == [('반수의신', 'hi')]
+
+
+def test_name_without_spaces_is_not_retried(tmp_path):
+    from agent.kakao_watch import KakaoRecipientUnavailable
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    searched = []
+    def search(state):
+        searched.append(state['room']); raise ValueError('no exact search result')
+    watch.search_chat = search
+    with pytest.raises(KakaoRecipientUnavailable):
+        watch.send_once('없는사람', 'hi')
+    assert searched == ['없는사람']

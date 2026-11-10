@@ -363,7 +363,15 @@ class KakaoWatcher:
                     from .kakao_self import KakaoSelf
                     state['room'] = KakaoSelf(self.control.device, self.path.parent).open_self()
                 else:
-                    self.search_chat(state)
+                    try:
+                        self.search_chat(state)
+                    except ValueError:
+                        # Spoken or typed names often add spaces ("반수의 신" for "반수의신").
+                        squashed = re.sub(r'\s+', '', recipient)
+                        if squashed == recipient:
+                            raise
+                        state['room'] = squashed
+                        self.search_chat(state)
             except ValueError as error:
                 raise KakaoRecipientUnavailable('exact recipient unavailable; no message entered') from error
             def record(status):
