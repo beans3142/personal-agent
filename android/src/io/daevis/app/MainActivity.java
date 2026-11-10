@@ -2,9 +2,14 @@ package io.daevis.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -42,7 +47,11 @@ public class MainActivity extends Activity {
         "window.pywebview={api:new Proxy({},{get:function(_,name){return function(){var a=Array.prototype.slice.call(arguments);" +
         "return new Promise(function(res){var id=++n;p[id]=res;DaevisHost.call(id,String(name),JSON.stringify(a));});};}})};" +
         "window.dispatchEvent(new Event('pywebviewready'));})();";
-    private static final int MIC = 7;
+    private static final int MIC = 7, NOTIFY = 8;
+    static final String EXTRA_LISTEN = "io.daevis.app.LISTEN";
+    private static final String CHANNEL = "answers";
+    private volatile boolean visible, pageReady, listenWhenReady;
+    private int notificationId = 100;
     private static final String SAMPLE = "안녕하세요, 대비스예요. 오늘 일정은 오후 세 시 회의 하나예요.";
 
     private WebView web;
@@ -80,11 +89,66 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
         web.addJavascriptInterface(new Host(), "DaevisHost");
         web.setWebViewClient(new WebViewClient() {
-            @Override public void onPageFinished(WebView view, String url) { view.evaluateJavascript(SHIM, null); }
+            @Override public void onPageFinished(WebView view, String url) {
+                view.evaluateJavascript(SHIM, null);
+                pageReady = true;
+                if (listenWhenReady) { listenWhenReady = false; view.postDelayed(() -> listen(null), 800); }
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return true; }  // Never navigate away.
         });
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
+        NotificationChannel channel = new NotificationChannel(CHANNEL, "대비스 답", NotificationManager.IMPORTANCE_HIGH);
+        channel.setDescription("앱을 보고 있지 않을 때 온 답");
+        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        handleLaunch(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleLaunch(intent);
+    }
+
+    /** Assistant gesture (ACTION_ASSIST), Quick Settings tile and the "말하기" shortcut open straight into listening. */
+    private void handleLaunch(Intent intent) {
+        if (intent == null || relay == null) return;
+        boolean talk = Intent.ACTION_ASSIST.equals(intent.getAction()) || Intent.ACTION_VOICE_COMMAND.equals(intent.getAction())
+            || intent.getExtras() != null && "true".equals(String.valueOf(intent.getExtras().get(EXTRA_LISTEN)));  // Shortcut XML extras are strings.
+        if (!talk) return;
+        intent.removeExtra(EXTRA_LISTEN);
+        if (pageReady) web.postDelayed(() -> listen(null), 300);
+        else listenWhenReady = true;
+    }
+
+    @Override protected void onResume() { super.onResume(); visible = true; }
+    @Override protected void onPause() { visible = false; super.onPause(); }
+
+    /** When the answer arrives while the app is in the background, show it as a notification. */
+    void notifyAnswer(String question, String answer, boolean ok) {
+        if (visible) return;
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Notification n = new Notification.Builder(this, CHANNEL)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(ok ? "대비스" : "대비스 · 처리하지 못했어요")
+            .setContentText(answer)
+            .setStyle(new Notification.BigTextStyle().bigText(answer).setSummaryText(question))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build();
+        getSystemService(NotificationManager.class).notify(notificationId++, n);
+    }
+
+    /** Ask once for notification permission (Android 13+), the first time a request is sent. */
+    void askNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                && !prefs.getBoolean("asked_notifications", false)) {
+            prefs.edit().putBoolean("asked_notifications", true).apply();
+            runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFY));
+        }
     }
 
     @Override
@@ -208,6 +272,7 @@ public class MainActivity extends Activity {
             String full = r != null && !r.optString("text").isEmpty() ? r.optString("text") : shortText;
             emit(event("answer").put2("job", job).put2("ok", ok).put2("text", full));
             if (speak) say(shortText);
+            notifyAnswer(text, shortText, ok);
         });
     }
 
@@ -303,6 +368,7 @@ public class MainActivity extends Activity {
             case "send": {
                 String text = a.optString(0, "").trim();
                 if (text.isEmpty() || relay == null) return new JSONObject().put("ok", false).put("error", "보낼 내용을 적어 주세요.");
+                askNotifications();
                 request(text, "typed", a.isNull(1) ? null : a.optString(1));
                 return new JSONObject().put("ok", true).put("queued", false);
             }

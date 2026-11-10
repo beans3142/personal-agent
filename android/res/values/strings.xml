@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">대비스</string>
+    <string name="tile_label">대비스에게 말하기</string>
+    <string name="shortcut_talk">말하기</string>
 </resources>

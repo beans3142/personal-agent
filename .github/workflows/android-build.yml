@@ -68,6 +68,16 @@ jobs:
             adb logcat -d > logcat.txt
             ! grep -E "FATAL EXCEPTION|AndroidRuntime: Process: io.daevis.app" logcat.txt
             adb shell pidof io.daevis.app
+            adb shell cmd role add-role-holder android.app.role.ASSISTANT io.daevis.app
+            adb shell cmd role get-role-holders android.app.role.ASSISTANT | tee assistant-role.txt
+            grep -q io.daevis.app assistant-role.txt
+            adb shell am start -W -a android.intent.action.ASSIST
+            adb shell cmd statusbar add-tile io.daevis.app/.TalkTile
+            adb shell cmd statusbar click-tile io.daevis.app/.TalkTile
+            sleep 3
+            adb shell pidof io.daevis.app
+            adb logcat -d > logcat-after.txt
+            ! grep -E "FATAL EXCEPTION" logcat-after.txt
             grep -iE "chromium|console" logcat.txt | grep -i "io.daevis\|Uncaught" | head -20 || true
       - uses: actions/upload-artifact@v4
         if: always()
@@ -76,4 +86,6 @@ jobs:
           path: |
             first-screen.png
             logcat.txt
+            logcat-after.txt
+            assistant-role.txt
           retention-days: 7
