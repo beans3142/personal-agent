@@ -21,7 +21,7 @@ def arguments(dist):
         '--collect-all', 'faster_whisper', '--collect-all', 'ctranslate2', '--collect-all', 'webview', '--collect-data', 'certifi',
         '--hidden-import', 'sounddevice', '--hidden-import', 'numpy', '--hidden-import', 'winsound', '--hidden-import', 'edge_tts',
         '--hidden-import', 'clr',
-        '--collect-submodules', 'mcp', '--hidden-import', 'desktop.mcp_server', '--hidden-import', 'desktop.cli',
+        '--collect-submodules', 'mcp.server', '--collect-submodules', 'mcp.shared', '--collect-submodules', 'mcp.client', '--hidden-import', 'desktop.mcp_server', '--hidden-import', 'desktop.cli',
     ] + [arg for name in EXCLUDE for arg in ('--exclude-module', name)]
 
 
