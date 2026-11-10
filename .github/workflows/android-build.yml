@@ -1,0 +1,37 @@
+name: Android build
+
+# Builds daevis.apk (the Galaxy/Android app) on every change to the app or the shared screen,
+# and keeps it as a workflow artifact. Nothing is published to Releases from here.
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'desktop/ui/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # One signing key across builds, so Android accepts each new APK as an update.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.daevis-android
+          key: daevis-android-signing-v1
+
+      - name: Test and build
+        run: python3 android/build.py --out build/android --version-code ${{ github.run_number }} --version-name 0.1.${{ github.run_number }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daevis-apk
+          path: build/android/daevis.apk
+          retention-days: 30

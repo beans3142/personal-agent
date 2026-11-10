@@ -58,7 +58,7 @@ def test_ask_rejects_empty_text():
 
 def test_history_is_trimmed_for_agents():
     page = mcp_server.history(FakeRelay(), limit=5)
-    assert page == {'items': [{'id': 'j1', 'text': '안녕', 'answer': '네', 'status': 'succeeded', 'created': 1.0}], 'more': False}
+    assert page == {'items': [{'id': 'j1', 'thread': 'j1', 'text': '안녕', 'answer': '네', 'status': 'succeeded', 'created': 1.0}], 'more': False}
 
 
 def test_server_lists_three_tools_with_descriptions():

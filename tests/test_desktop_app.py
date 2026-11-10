@@ -347,3 +347,19 @@ def test_display_errors_do_not_end_the_request():
                         SimpleNamespace(speak=lambda text, voice, rate: spoken.append(text)), dict(settings.DEFAULTS), broken)
     c.request('안녕', 'voice')
     assert spoken == ['네']
+
+
+def test_follow_up_and_search_bodies():
+    r, post = client({'/request': {'id': 'j2'}, '/history': {'items': []}})
+    r.submit('두 번째 가게', 'typed', thread='a' * 32)
+    r.history(q='초밥')
+    assert post.calls[0][1]['payload'] == {'text': '두 번째 가게', 'via': 'typed', 'thread': 'a' * 32}
+    assert post.calls[1][1] == {'node': 'pc-0123456789abcdef', 'limit': 20, 'q': '초밥'}
+
+
+def test_controller_passes_the_thread_and_reports_it():
+    events = []
+    relay_ = FakeRelay([{'status': 'succeeded', 'result': {'reply': '네'}}])
+    relay_.submit = lambda text, via, thread=None: relay_.submitted.append((text, via, thread)) or 'j9'
+    core.Controller(relay_, SimpleNamespace(speak=lambda *a: None), dict(settings.DEFAULTS), events.append).request('이어서', 'typed', thread='b' * 32)
+    assert relay_.submitted == [('이어서', 'typed', 'b' * 32)] and events[0]['thread'] == 'b' * 32

@@ -59,6 +59,9 @@ class PCRegistry(DeviceStore):
             ''')
             if 'kind' not in {r['name'] for r in db.execute('PRAGMA table_info(pc_invites)')}:
                 db.execute("ALTER TABLE pc_invites ADD COLUMN kind TEXT DEFAULT 'pc'")
+            columns={r['name'] for r in db.execute('PRAGMA table_info(voice_history)')}
+            for name in ('thread','topic'):
+                if name not in columns:db.execute(f'ALTER TABLE voice_history ADD COLUMN {name} TEXT')
 
     @staticmethod
     def alias(label):
@@ -91,6 +94,8 @@ class PCRegistry(DeviceStore):
                 token=secrets.token_urlsafe(32);node='phone-'+secrets.token_hex(8)
                 db.execute('INSERT INTO nodes(name,digest,capabilities) VALUES(?,?,?)',(node,hashlib.sha256(token.encode()).hexdigest(),json.dumps(PHONE_CAPABILITIES)))
                 db.execute('INSERT INTO phones VALUES(?,?,?)',(alias,label,node))
+                if db.execute("SELECT 1 FROM nodes WHERE name='voice'").fetchone():
+                    db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(node,))
                 db.execute('DELETE FROM pc_invites WHERE digest=?',(digest,))
                 return {'node':node,'token':token,'label':label,'url':BASE,'actions':PHONE_CAPABILITIES}
             if db.execute('SELECT 1 FROM pcs WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')
@@ -162,7 +167,7 @@ class PCRegistry(DeviceStore):
                 # Internal node: its random digest is never handed out, so nothing can poll it over HTTP.
                 db.execute("INSERT INTO nodes(name,digest,capabilities) VALUES('voice',?,?)",
                            (hashlib.sha256(secrets.token_bytes(32)).hexdigest(),json.dumps(['voice_command'])))
-            for row in db.execute('SELECT node FROM pcs').fetchall():
+            for row in db.execute('SELECT node FROM pcs UNION SELECT node FROM phones').fetchall():
                 db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(row['node'],))
             if db.execute("SELECT 1 FROM nodes WHERE name='agent-main'").fetchone():
                 # Spoken PC/phone/power commands from Discord voice messages come back through the agent.
@@ -172,13 +177,15 @@ class PCRegistry(DeviceStore):
         with self._db() as db:
             db.execute('BEGIN IMMEDIATE');self._expire(db)
             rows=db.execute("SELECT * FROM jobs WHERE node='voice' AND status='queued' ORDER BY created,rowid").fetchall()
-            pcs={r['node'] for r in db.execute('SELECT node FROM pcs')}
+            devices={r['node'] for r in db.execute('SELECT node FROM pcs UNION SELECT node FROM phones')}
             for row in rows:
                 db.execute("UPDATE jobs SET status='dispatched' WHERE id=?",(row['id'],))
-                if row['issuer'] in pcs:
+                if row['issuer'] in devices:
                     payload=json.loads(row['payload'])
-                    db.execute("INSERT OR IGNORE INTO voice_history(job,node,via,text,status,created) VALUES(?,?,?,?,'running',?)",
-                               (row['id'],row['issuer'],payload.get('via','voice'),payload['text'],row['created']))
+                    root=db.execute('SELECT thread FROM voice_history WHERE job=?',(payload.get('thread',''),)).fetchone()
+                    thread=(root['thread'] or payload['thread']) if root else row['id']
+                    db.execute("INSERT OR IGNORE INTO voice_history(job,node,via,text,status,created,thread) VALUES(?,?,?,?,'running',?,?)",
+                               (row['id'],row['issuer'],payload.get('via','voice'),payload['text'],row['created'],thread))
         return [{'id':r['id'],'source':r['issuer'],'payload':json.loads(r['payload'])} for r in rows]
 
     def voice_progress(self,job_id,result):
@@ -189,8 +196,9 @@ class PCRegistry(DeviceStore):
         if status not in ('succeeded','failed'):raise ValueError('invalid voice status')
         with self._db() as db:
             db.execute("UPDATE jobs SET status=?,result=? WHERE id=? AND node='voice'",(status,json.dumps(result,ensure_ascii=False),job_id))
-            db.execute('UPDATE voice_history SET status=?,reply=?,finished=? WHERE job=?',
-                       (status,str(result.get('text') or result.get('reply') or ''),self.clock(),job_id))
+            topic=result.get('topic') if isinstance(result.get('topic'),str) and re.fullmatch(r'[0-9a-f]{32}',result.get('topic')) else None
+            db.execute('UPDATE voice_history SET status=?,reply=?,finished=?,topic=COALESCE(?,topic) WHERE job=?',
+                       (status,str(result.get('text') or result.get('reply') or ''),self.clock(),topic,job_id))
             self._prune_voice(db)
 
     def _prune_voice(self,db):
@@ -203,27 +211,40 @@ class PCRegistry(DeviceStore):
         db.execute('DELETE FROM voice_history WHERE created<?',(now-30*86400,))
 
     def _pc_auth(self,node,token):
+        """The owner's registered PCs and phones."""
         self._auth(node,token)
         with self._db() as db:
-            if not db.execute('SELECT 1 FROM pcs WHERE node=?',(node,)).fetchone():raise PermissionError('registered PCs only')
+            if not db.execute('SELECT 1 FROM pcs WHERE node=? UNION SELECT 1 FROM phones WHERE node=?',(node,node)).fetchone():
+                raise PermissionError('registered devices only')
 
-    def history(self,node,token,before=None,limit=20):
-        """Owner's requests from any registered PC, newest first, paged by created time."""
+    def thread_topic(self,job_id):
+        """The main agent's conversation for the thread that request belongs to, if it has one yet."""
+        with self._db() as db:
+            row=db.execute('''SELECT topic FROM voice_history WHERE topic IS NOT NULL AND thread=(SELECT thread FROM voice_history WHERE job=?)
+                              ORDER BY created DESC LIMIT 1''',(job_id,)).fetchone()
+        return row['topic'] if row else None
+
+    def history(self,node,token,before=None,limit=20,q=None):
+        """Owner's requests from any registered device, newest first, paged by created time; q searches text and answers."""
         self._pc_auth(node,token)
         if type(limit) is not int or not 1<=limit<=50:raise ValueError('limit must be 1..50')
         if before is not None and (type(before) not in (int,float) or before!=before):raise ValueError('invalid cursor')
+        if q is not None and (not isinstance(q,str) or len(q)>100):raise ValueError('invalid search')
+        like='%'+(q or '').replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
         with self._db() as db:
             self._expire(db)
-            rows=db.execute('''SELECT h.*,p.label,j.status AS live FROM voice_history h LEFT JOIN pcs p ON p.node=h.node
-                               LEFT JOIN jobs j ON j.id=h.job WHERE h.created<? ORDER BY h.created DESC,h.rowid DESC LIMIT ?''',
-                            (9e18 if before is None else before,limit+1)).fetchall()
+            rows=db.execute('''SELECT h.*,COALESCE(p.label,f.label) AS label,j.status AS live FROM voice_history h LEFT JOIN pcs p ON p.node=h.node
+                               LEFT JOIN phones f ON f.node=h.node LEFT JOIN jobs j ON j.id=h.job
+                               WHERE h.created<? AND (h.text LIKE ? ESCAPE '\\' OR h.reply LIKE ? ESCAPE '\\')
+                               ORDER BY h.created DESC,h.rowid DESC LIMIT ?''',
+                            (9e18 if before is None else before,like,like,limit+1)).fetchall()
         items=[]
         for r in rows[:limit]:
             status=r['status']
             if status=='running' and r['live'] not in ('queued','dispatched'):status=r['live'] or 'unknown'
-            items.append({'id':r['job'],'pc':r['label'] or '등록 해제된 PC','via':r['via'],'text':r['text'],
-                          'reply':r['reply'] or '','status':status,'created':r['created'],'finished':r['finished']})
-        with self._db() as db:me=db.execute('SELECT label FROM pcs WHERE node=?',(node,)).fetchone()
+            items.append({'id':r['job'],'pc':r['label'] or '등록 해제된 기기','via':r['via'],'text':r['text'],
+                          'reply':r['reply'] or '','status':status,'created':r['created'],'finished':r['finished'],'thread':r['thread'] or r['job']})
+        with self._db() as db:me=db.execute('SELECT label FROM pcs WHERE node=? UNION SELECT label FROM phones WHERE node=?',(node,node)).fetchone()
         return {'items':items,'more':len(rows)>limit,'me':me['label'] if me else ''}
 
     def agent_progress(self,token,job_id,result):
@@ -261,8 +282,10 @@ class PCRegistry(DeviceStore):
             row=db.execute("SELECT seen,digest FROM nodes WHERE name='agent-main'").fetchone()
         return bool(row and row['digest'] and row['seen'] and self.clock()-row['seen']<=20)
 
-    def forward_to_agent(self,text,request_key,via='voice'):
-        return self.enqueue('agent-main','voice_command',{'text':text} if via=='voice' else {'text':text,'via':via},request_key,300)
+    def forward_to_agent(self,text,request_key,via='voice',topic=None):
+        payload={'text':text} if via=='voice' else {'text':text,'via':via}
+        if topic:payload['topic']=topic
+        return self.enqueue('agent-main','voice_command',payload,request_key,300)
 
     def phone_inventory(self):
         states={n['name']:n for n in self.list_nodes()}
@@ -281,7 +304,10 @@ class PCRegistry(DeviceStore):
             rows=[dict(r) for r in db.execute('SELECT * FROM phones ORDER BY label')]
             if label is not None:rows=[r for r in rows if r['alias']==self.alias(label)]
             if not rows:raise ValueError('no phone registered; use 폰 등록')
-            phone=rows[0]
+            # Prefer a phone whose call receiver is connected (an app-only registration never polls).
+            online=[r for r in rows for n in [db.execute('SELECT seen,digest FROM nodes WHERE name=?',(r['node'],)).fetchone()]
+                    if n and n['digest'] and n['seen'] and self.clock()-n['seen']<=20]
+            phone=(online or rows)[0]
             node=db.execute('SELECT seen,digest FROM nodes WHERE name=?',(phone['node'],)).fetchone()
             if not node or not node['digest'] or not node['seen'] or self.clock()-node['seen']>20:raise ValueError('phone offline')
         job=self.enqueue(phone['node'],'phone_call',payload,request_key,25)
@@ -393,8 +419,8 @@ def pc_handler(registry,public_dir):
                 if not authorization.startswith('Bearer '):raise PermissionError('missing bearer')
                 token=authorization[7:]
                 if not isinstance(body,dict):raise ValueError('invalid object')
-                if self.path=='/history' and {'node'}<=set(body)<={'node','before','limit'}:
-                    reply=registry.history(body['node'],token,body.get('before'),body.get('limit',20))
+                if self.path=='/history' and {'node'}<=set(body)<={'node','before','limit','q'}:
+                    reply=registry.history(body['node'],token,body.get('before'),body.get('limit',20),body.get('q'))
                 elif self.path=='/progress' and set(body)=={'node','id','result'}:
                     if body['node']!='agent-main':raise PermissionError('main agent only')
                     reply=registry.agent_progress(token,body['id'],body['result'])

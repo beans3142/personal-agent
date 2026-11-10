@@ -40,7 +40,8 @@ class Bridge:
                    'online': v.engine == 'edge'} for v in tts.VOICES]
         self._ready.set()
         return {'registered': self._relay is not None, 'pc': getattr(self._relay, 'label', ''),
-                'settings': dict(self._settings), 'voices': voices, 'status': self._status}
+                'settings': dict(self._settings), 'voices': voices, 'status': self._status,
+                'features': {'wake': True, 'autostart': True, 'window': True, 'push': False}}
 
     def register(self, pasted):
         try:
@@ -53,20 +54,22 @@ class Bridge:
             self._on_register(path)
         return {'ok': True}
 
-    def send(self, text, wait=False):
+    def send(self, text, thread=None, wait=False):
         text = (text or '').strip()
         if not text or self._controller is None:
             return {'ok': False, 'error': '보낼 내용을 적어 주세요.'}
+        if thread is not None and not (isinstance(thread, str) and len(thread) == 32):
+            thread = None
         queued = self._controller.busy.locked()
-        worker = threading.Thread(target=self._controller.request, args=(text, 'typed'), daemon=True)
+        worker = threading.Thread(target=self._controller.request, args=(text, 'typed', thread), daemon=True)
         worker.start()
         if wait:
             worker.join()
         return {'ok': True, 'queued': queued}
 
-    def history(self, before=None):
+    def history(self, before=None, q=None):
         try:
-            return self._relay.history(before=before)
+            return self._relay.history(before=before, q=(q or '').strip()[:100] or None)
         except Exception:
             return {'error': '기록을 불러오지 못했어요.', 'items': [], 'more': False}
 

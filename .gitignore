@@ -30,3 +30,7 @@ HANDOFF.md
 agent/private/
 tests/private/
 scripts/private/
+
+# Local app builds
+/build/
+/dist/

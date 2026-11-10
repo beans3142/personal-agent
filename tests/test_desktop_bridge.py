@@ -13,8 +13,8 @@ class FakeRelay:
     def __init__(self):
         self.approved = []
 
-    def history(self, before=None, limit=20):
-        return {'items': [{'id': 'j1', 'text': '안녕', 'before': before}], 'more': False}
+    def history(self, before=None, limit=20, q=None):
+        return {'items': [{'id': 'j1', 'text': '안녕', 'before': before, 'q': q}], 'more': False}
 
     def approve(self, job, approval, value):
         self.approved.append((job, approval, value))
@@ -38,6 +38,7 @@ def test_boot_tells_the_page_about_link_voices_and_settings(tmp_path):
     assert all(set(v) == {'id', 'name', 'detail', 'online'} for v in state['voices'])
     json.dumps(state)  # Must cross into JavaScript.
     assert b._ready.is_set() and state['status'] == ''
+    assert state['features'] == {'wake': True, 'autostart': True, 'window': True, 'push': False}
 
 
 def test_unregistered_boot_and_failed_registration(tmp_path):
@@ -69,7 +70,7 @@ def test_preview_speaks_a_sample_in_the_chosen_voice(tmp_path):
 def test_send_rejects_empty_text_and_runs_requests_in_the_background(tmp_path):
     b, _ = make(tmp_path)
     ran = []
-    b._controller = SimpleNamespace(request=lambda text, via: ran.append((text, via)), busy=SimpleNamespace(locked=lambda: False))
+    b._controller = SimpleNamespace(request=lambda text, via, thread=None: ran.append((text, via)), busy=SimpleNamespace(locked=lambda: False))
     assert b.send('   ')['ok'] is False
     assert b.send('오늘 일정', wait=True) == {'ok': True, 'queued': False}
     assert ran == [('오늘 일정', 'typed')]
@@ -81,7 +82,8 @@ def test_history_and_payment_pass_through_and_errors_become_messages(tmp_path):
     assert b.answer_payment('j1', 'abcdefabcdefabcd', 'allow')['ok']
     assert b._relay.approved == [('j1', 'abcdefabcdefabcd', 'allow')]
     assert b.answer_payment('j1', 'abcdefabcdefabcd', 'maybe')['ok'] is False
-    b._relay.history = lambda before=None, limit=20: (_ for _ in ()).throw(OSError('offline'))
+    assert b.history(None, ' 초밥 ')['items'][0]['q'] == '초밥'
+    b._relay.history = lambda before=None, limit=20, q=None: (_ for _ in ()).throw(OSError('offline'))
     assert 'error' in b.history()
 
 

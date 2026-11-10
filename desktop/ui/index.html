@@ -2,223 +2,280 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>대비스</title>
 <style>
 :root {
-  --bg: #04070c; --bg2: #07101a; --panel: rgba(10, 24, 38, .62); --line: rgba(80, 200, 255, .18);
-  --line-strong: rgba(90, 210, 255, .45); --cyan: #4fd8ff; --cyan-soft: #9be9ff; --text: #d8f3ff;
-  --muted: #6f93a8; --amber: #ffb547; --red: #ff5d6c; --green: #5dffb0;
-  --mono: 'Cascadia Mono', 'Consolas', 'Malgun Gothic', monospace; --sans: 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --bg: #03060b; --panel: rgba(9, 22, 36, .66); --panel2: rgba(12, 30, 48, .8); --line: rgba(80, 200, 255, .14);
+  --line-strong: rgba(90, 210, 255, .42); --cyan: #4fd8ff; --cyan-soft: #a6ecff; --text: #dcf4ff; --muted: #6a8ea4;
+  --amber: #ffb547; --red: #ff5d6c; --green: #5dffb0;
+  --mono: 'Cascadia Mono', 'Consolas', 'Malgun Gothic', monospace; --sans: 'Pretendard', 'Segoe UI', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
 }
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.6 var(--sans); overflow: hidden; user-select: none; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14.5px/1.65 var(--sans); overflow: hidden; }
 body::before { content: ''; position: fixed; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse at 50% 38%, rgba(40, 140, 200, .16), transparent 60%),
-              linear-gradient(rgba(79, 216, 255, .035) 1px, transparent 1px) 0 0 / 100% 4px,
-              linear-gradient(90deg, rgba(79, 216, 255, .04) 1px, transparent 1px) 0 0 / 48px 48px,
-              linear-gradient(rgba(79, 216, 255, .04) 1px, transparent 1px) 0 0 / 48px 48px; }
+  background: radial-gradient(ellipse at 60% 20%, rgba(40, 140, 210, .16), transparent 55%),
+              radial-gradient(ellipse at 10% 100%, rgba(30, 90, 160, .12), transparent 50%),
+              linear-gradient(rgba(79, 216, 255, .03) 1px, transparent 1px) 0 0 / 100% 3px,
+              linear-gradient(90deg, rgba(79, 216, 255, .035) 1px, transparent 1px) 0 0 / 56px 56px,
+              linear-gradient(rgba(79, 216, 255, .035) 1px, transparent 1px) 0 0 / 56px 56px; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
-.mono { font-family: var(--mono); letter-spacing: .08em; }
-.app { position: relative; display: grid; grid-template-rows: 46px 1fr 74px; grid-template-columns: 300px 1fr; height: 100%; }
+input, textarea { font: inherit; color: inherit; }
+svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.hidden { display: none !important; }
+.label { font: 10.5px var(--mono); letter-spacing: .26em; color: var(--muted); text-transform: uppercase; }
+::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: rgba(79, 216, 255, .18); border-radius: 3px; }
+
+.app { position: relative; display: grid; grid-template-columns: 290px 1fr; grid-template-rows: 48px 1fr; height: 100%; }
+.app.nav-closed { grid-template-columns: 0 1fr; }
 
 /* top bar */
-.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; padding: 0 8px 0 18px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, rgba(10, 30, 46, .7), transparent); }
-.brand { font: 600 15px var(--mono); letter-spacing: .5em; color: var(--cyan); text-shadow: 0 0 12px rgba(79, 216, 255, .6); }
-.brand small { margin-left: 6px; font-size: 10px; letter-spacing: .3em; color: var(--muted); text-shadow: none; }
-.drag { flex: 1; height: 100%; }
-.link { display: flex; align-items: center; gap: 8px; font: 11px var(--mono); letter-spacing: .12em; color: var(--muted); }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 8px currentColor; }
-.dot.ok { background: var(--green); color: var(--green); } .dot.warn { background: var(--amber); color: var(--amber); } .dot.bad { background: var(--red); color: var(--red); }
-.clock { font: 12px var(--mono); color: var(--cyan-soft); letter-spacing: .15em; min-width: 92px; text-align: right; }
-.icon-btn { width: 36px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: var(--muted); }
-.icon-btn:hover { color: var(--cyan); background: rgba(79, 216, 255, .08); }
-.icon-btn.close:hover { color: #fff; background: rgba(255, 93, 108, .5); }
-svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(8, 24, 40, .85), rgba(3, 6, 11, .4)); z-index: 4; }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 14px var(--mono); letter-spacing: .48em; color: var(--cyan); text-shadow: 0 0 12px rgba(79, 216, 255, .6); }
+.mini-orb { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--cyan); box-shadow: 0 0 10px var(--cyan), inset 0 0 8px var(--cyan); position: relative; }
+.mini-orb::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: var(--cyan-soft); box-shadow: 0 0 10px var(--cyan); }
+.app[data-mode=thinking] .mini-orb { border-top-color: transparent; animation: spin .9s linear infinite; }
+.app[data-mode=speaking] .mini-orb::after, .app[data-mode=wake] .mini-orb::after { animation: pulse .5s ease-in-out infinite alternate; }
+.title { flex: 1; min-width: 0; text-align: center; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title b { color: var(--text); font-weight: 500; }
+.link { display: flex; align-items: center; gap: 7px; font: 10.5px var(--mono); letter-spacing: .14em; color: var(--muted); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); } .dot.warn { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.icon { width: 34px; height: 32px; display: grid; place-items: center; border-radius: 7px; color: var(--muted); }
+.icon:hover { color: var(--cyan); background: rgba(79, 216, 255, .08); }
+.icon.close:hover { color: #fff; background: rgba(255, 93, 108, .55); }
 
-/* panels */
-.frame { position: relative; border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(6px); }
-.frame::before, .frame::after { content: ''; position: absolute; width: 14px; height: 14px; border: 2px solid var(--cyan); opacity: .7; }
-.frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-.frame::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
-.label { font: 11px var(--mono); letter-spacing: .28em; color: var(--muted); }
+/* sidebar: conversations */
+.nav { grid-row: 2; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-right: 1px solid var(--line); background: rgba(5, 14, 24, .72); }
+.new { display: flex; align-items: center; gap: 10px; margin: 12px 12px 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--cyan-soft); }
+.new:hover { background: rgba(79, 216, 255, .08); box-shadow: 0 0 18px rgba(79, 216, 255, .12); }
+.new kbd, .search kbd { margin-left: auto; font: 10px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.search { display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 7px 10px; border-radius: 9px; background: rgba(0, 0, 0, .28); border: 1px solid var(--line); color: var(--muted); }
+.search:focus-within { border-color: var(--cyan); box-shadow: 0 0 12px rgba(79, 216, 255, .18); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text); font-size: 13.5px; }
+.threads { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+.group { margin: 14px 8px 4px; }
+.thread { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; margin: 1px 0; }
+.thread:hover { background: rgba(79, 216, 255, .06); }
+.thread.on { background: rgba(79, 216, 255, .12); box-shadow: inset 2px 0 0 var(--cyan); }
+.thread .t { display: flex; align-items: center; gap: 6px; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread .t i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex: none; animation: blink 1s infinite; }
+.thread .s { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread mark { background: rgba(79, 216, 255, .25); color: var(--text); border-radius: 2px; }
+.empty-nav { padding: 18px 16px; color: var(--muted); font-size: 13px; }
+.more { margin: 6px 8px; width: calc(100% - 16px); padding: 7px; font: 10.5px var(--mono); letter-spacing: .2em; color: var(--muted); border: 1px dashed var(--line); border-radius: 7px; }
+.nav-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 
-/* log */
-.log { margin: 14px 0 14px 14px; display: flex; flex-direction: column; min-height: 0; }
-.log header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px 8px; }
-.entries { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
-.entry { display: block; width: 100%; text-align: left; padding: 9px 10px 9px 14px; margin-bottom: 4px; border-left: 2px solid transparent; border-radius: 0 4px 4px 0; }
-.entry:hover { background: rgba(79, 216, 255, .06); border-left-color: var(--line-strong); }
-.entry.on { background: rgba(79, 216, 255, .1); border-left-color: var(--cyan); }
-.entry .q { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-.entry .m { display: flex; gap: 8px; align-items: center; font: 10.5px var(--mono); color: var(--muted); letter-spacing: .06em; }
-.entry .m i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-.entry .m i.failed, .entry .m i.expired, .entry .m i.uncertain { background: var(--red); }
-.entry .m i.running { background: var(--amber); animation: blink 1s infinite; }
-.more { margin: 4px 8px 10px; padding: 8px; font: 11px var(--mono); letter-spacing: .2em; color: var(--muted); border: 1px dashed var(--line); }
-.more:hover { color: var(--cyan); border-color: var(--line-strong); }
-.empty-log { padding: 18px 14px; color: var(--muted); font-size: 13px; }
-::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: rgba(79, 216, 255, .2); border-radius: 3px; }
+/* main */
+.main { grid-row: 2; position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.stream { flex: 1; overflow-y: auto; padding: 18px 0 8px; scroll-behavior: smooth; }
+.col { width: min(780px, 100% - 40px); margin: 0 auto; }
 
-/* center */
-.main { position: relative; display: flex; flex-direction: column; min-height: 0; padding: 14px 22px 0; }
-.core-wrap { position: relative; display: flex; flex-direction: column; align-items: center; flex: none; transition: height .5s; }
-canvas#core { width: 230px; height: 230px; }
-.mode { margin-top: -6px; font: 12px var(--mono); letter-spacing: .45em; color: var(--cyan); text-shadow: 0 0 10px rgba(79, 216, 255, .6); }
-.sub { margin-top: 2px; font-size: 12.5px; color: var(--muted); min-height: 20px; }
-.transcript { flex: 1; overflow-y: auto; margin-top: 12px; padding: 4px 8px 16px; min-height: 0; user-select: text; }
-.banner { display: flex; justify-content: space-between; align-items: center; margin: 0 0 14px; padding: 8px 12px; border: 1px solid var(--line); font: 11px var(--mono); letter-spacing: .12em; color: var(--muted); }
-.banner button { color: var(--cyan); letter-spacing: .16em; }
-.turn { margin-bottom: 22px; animation: rise .35s ease-out; }
-.who { font: 10.5px var(--mono); letter-spacing: .3em; margin-bottom: 4px; }
-.you .who { color: var(--muted); } .you .text { color: var(--cyan-soft); font-size: 15px; }
-.ai { margin-top: 12px; padding: 12px 16px; border-left: 2px solid var(--cyan); background: linear-gradient(90deg, rgba(79, 216, 255, .08), transparent 70%); }
-.ai .who { color: var(--cyan); }
-.ai .text { white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; font-size: 14.5px; }
-.ai.fail { border-left-color: var(--red); } .ai.fail .who { color: var(--red); }
-.foot { margin-top: 8px; font: 11px var(--mono); color: var(--muted); letter-spacing: .02em; white-space: pre-wrap; }
-.step { display: flex; align-items: center; gap: 10px; color: var(--cyan-soft); font-size: 13.5px; }
-.steps { list-style: none; margin: 2px 0 0; padding: 0; }
-.steps li { position: relative; padding: 3px 0 3px 24px; font-size: 13.5px; color: var(--muted); }
-.steps li::before { content: ''; position: absolute; left: 4px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); opacity: .45; }
-.steps li:not(:last-child)::after { content: ''; position: absolute; left: 7.5px; top: 20px; bottom: -6px; width: 1px; background: var(--line-strong); }
-.steps li.now { color: var(--cyan-soft); }
-.steps li.now::before { width: 10px; height: 10px; left: 2px; top: 8px; border: 2px solid var(--cyan); border-top-color: transparent; background: none; opacity: 1; animation: spin .8s linear infinite; }
-.step::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--cyan); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
-.ai { position: relative; }
-.tools { position: absolute; top: 8px; right: 10px; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
-.foot:empty { display: none; }
+/* welcome: big orb */
+.welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; padding-bottom: 30px; text-align: center; }
+canvas#core { width: 250px; height: 250px; }
+.mode { margin-top: -4px; font: 12px var(--mono); letter-spacing: .5em; color: var(--cyan); text-shadow: 0 0 10px rgba(79, 216, 255, .6); }
+.sub { margin-top: 4px; color: var(--muted); font-size: 13px; min-height: 21px; }
+.greet { margin-top: 18px; font-size: 22px; font-weight: 500; letter-spacing: -.01em; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; max-width: 620px; }
+.chips button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 18px; color: var(--cyan-soft); font-size: 13px; background: rgba(9, 22, 36, .5); }
+.chips button:hover { border-color: var(--cyan); background: rgba(79, 216, 255, .1); }
+.recent { margin-top: 26px; width: min(560px, 100%); text-align: left; }
+.recent .label { margin: 0 4px 6px; display: block; }
+.recent button { display: flex; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; text-align: left; font-size: 13.5px; }
+.recent button:hover { background: rgba(79, 216, 255, .07); }
+.recent span:last-child { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.recent span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* messages */
+.msg { margin: 0 0 22px; animation: rise .3s ease-out; }
+.me { display: flex; justify-content: flex-end; }
+.me > div { max-width: 78%; }
+.me .bubble { padding: 10px 14px; border-radius: 16px 16px 4px 16px; background: linear-gradient(135deg, rgba(79, 216, 255, .22), rgba(60, 120, 255, .16));
+  border: 1px solid rgba(79, 216, 255, .3); white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+.me .meta { font: 10.5px var(--mono); color: var(--muted); text-align: right; margin-top: 3px; letter-spacing: .06em; }
+.ai { position: relative; padding-left: 38px; }
+.ai::before { content: ''; position: absolute; left: 4px; top: 4px; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--cyan); box-shadow: 0 0 10px rgba(79, 216, 255, .6), inset 0 0 6px rgba(79, 216, 255, .6); }
+.ai.pending::before { border-top-color: transparent; animation: spin .9s linear infinite; }
+.ai.fail::before { border-color: var(--red); box-shadow: 0 0 10px rgba(255, 93, 108, .5); }
+.ai .text { white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; user-select: text; }
+.ai .foot { margin-top: 6px; font: 11px var(--mono); color: #4f7186; }
+.ai .tools { display: flex; gap: 6px; margin-top: 6px; opacity: 0; transition: opacity .2s; }
 .ai:hover .tools { opacity: 1; }
-.chip { padding: 3px 10px; font: 11px var(--mono); letter-spacing: .1em; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; }
+.chip { padding: 2px 10px; font: 11px var(--mono); letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; }
 .chip:hover { color: var(--cyan); border-color: var(--line-strong); }
-.welcome { text-align: center; color: var(--muted); padding-top: 10px; }
-.welcome .hint { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
-.welcome .hint button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 18px; color: var(--cyan-soft); font-size: 13px; }
-.welcome .hint button:hover { border-color: var(--cyan); background: rgba(79, 216, 255, .08); }
+details.trace { margin-bottom: 6px; }
+details.trace summary { list-style: none; cursor: pointer; font-size: 12.5px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+details.trace summary::-webkit-details-marker { display: none; }
+details.trace summary::before { content: '›'; transition: transform .2s; display: inline-block; }
+details.trace[open] summary::before { transform: rotate(90deg); }
+.steps { list-style: none; margin: 6px 0 2px; padding: 0; }
+.steps li { position: relative; padding: 2px 0 2px 22px; font-size: 13px; color: var(--muted); }
+.steps li::before { content: ''; position: absolute; left: 3px; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); opacity: .45; }
+.steps li:not(:last-child)::after { content: ''; position: absolute; left: 6px; top: 18px; bottom: -4px; width: 1px; background: var(--line-strong); }
+.steps li.now { color: var(--cyan-soft); }
+.steps li.now::before { width: 9px; height: 9px; left: 2px; top: 8px; border: 2px solid var(--cyan); border-top-color: transparent; background: none; opacity: 1; animation: spin .8s linear infinite; }
+.live-step { color: var(--cyan-soft); font-size: 13.5px; }
 
-/* command line */
-.cmd { grid-column: 2; display: flex; align-items: center; gap: 10px; margin: 0 22px 16px; padding: 0 8px 0 16px; height: 50px; }
-.cmd .prompt { font: 600 15px var(--mono); color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
-.cmd input { flex: 1; height: 100%; background: none; border: 0; outline: 0; color: var(--text); font: 15px var(--sans); }
-.cmd input::placeholder { color: #47677a; }
-.cmd .send { height: 34px; padding: 0 16px; font: 12px var(--mono); letter-spacing: .25em; color: var(--bg); background: var(--cyan); border-radius: 3px; box-shadow: 0 0 14px rgba(79, 216, 255, .45); }
-.cmd .send:hover { background: var(--cyan-soft); }
-.mic.off { color: var(--red); }
-.log-foot { grid-column: 1; grid-row: 3; display: flex; align-items: center; padding: 0 0 16px 28px; font: 10.5px var(--mono); letter-spacing: .14em; color: var(--muted); }
+/* composer */
+.composer { padding: 6px 0 16px; }
+.continuing { display: flex; align-items: center; gap: 8px; margin: 0 4px 6px; font-size: 12px; color: var(--muted); }
+.continuing button { color: var(--cyan); font-size: 12px; }
+.box { display: flex; align-items: flex-end; gap: 6px; padding: 8px 8px 8px 16px; border-radius: 16px; border: 1px solid var(--line-strong);
+  background: var(--panel2); box-shadow: 0 0 0 1px rgba(79, 216, 255, .05), 0 10px 40px rgba(0, 0, 0, .35); }
+.box:focus-within { border-color: var(--cyan); box-shadow: 0 0 22px rgba(79, 216, 255, .22), 0 10px 40px rgba(0, 0, 0, .35); }
+.box textarea { flex: 1; min-height: 26px; max-height: 180px; padding: 6px 0; border: 0; outline: 0; background: none; resize: none; font-size: 15px; line-height: 1.55; }
+.box textarea::placeholder { color: #4a6a7e; }
+.round { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: var(--muted); }
+.round:hover { color: var(--cyan); background: rgba(79, 216, 255, .08); }
+.round.mic.off { color: var(--red); }
+.round.mic.listening { color: var(--bg); background: var(--cyan); box-shadow: 0 0 18px var(--cyan); animation: pulse .6s ease-in-out infinite alternate; }
+.round.send { color: var(--bg); background: var(--cyan); box-shadow: 0 0 14px rgba(79, 216, 255, .45); }
+.round.send:disabled { opacity: .35; box-shadow: none; }
+.hintline { text-align: center; margin-top: 6px; font-size: 11.5px; color: #44657a; }
 
 /* payment alert */
-.alert { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(460px, 86%); padding: 22px 24px 20px; z-index: 5;
-  border: 1px solid rgba(255, 181, 71, .6); background: rgba(30, 18, 4, .92); box-shadow: 0 0 40px rgba(255, 181, 71, .25); animation: rise .25s; }
-.alert::before, .alert::after { border-color: var(--amber); }
+.alert { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(480px, 92%); padding: 20px 22px; z-index: 6; border-radius: 14px;
+  border: 1px solid rgba(255, 181, 71, .65); background: rgba(30, 18, 4, .95); box-shadow: 0 0 50px rgba(255, 181, 71, .25); animation: rise .25s; }
 .alert .label { color: var(--amber); }
-.alert .body { margin: 12px 0 16px; white-space: pre-wrap; font-size: 14.5px; }
+.alert .body { margin: 10px 0 14px; white-space: pre-wrap; }
 .alert .row { display: flex; gap: 10px; align-items: center; }
-.alert .count { flex: 1; font: 11px var(--mono); color: var(--amber); letter-spacing: .12em; }
-.alert .go { padding: 9px 18px; background: var(--amber); color: #1a1000; font-weight: 600; border-radius: 3px; }
-.alert .no { padding: 9px 16px; border: 1px solid rgba(255, 181, 71, .5); color: var(--amber); border-radius: 3px; }
+.alert .count { flex: 1; font: 11px var(--mono); color: var(--amber); }
+.alert .go { padding: 9px 18px; background: var(--amber); color: #1a1000; font-weight: 600; border-radius: 9px; }
+.alert .no { padding: 9px 16px; border: 1px solid rgba(255, 181, 71, .5); color: var(--amber); border-radius: 9px; }
 
-/* settings drawer */
-.drawer { position: absolute; top: 46px; right: 0; bottom: 0; width: 400px; z-index: 6; padding: 22px 22px 18px; overflow-y: auto;
-  background: rgba(5, 14, 24, .97); border-left: 1px solid var(--line-strong); transform: translateX(100%); transition: transform .3s ease; }
+/* palette */
+.overlay { position: absolute; inset: 0; z-index: 8; background: rgba(1, 4, 8, .6); backdrop-filter: blur(3px); display: flex; justify-content: center; padding-top: 12vh; }
+.palette { width: min(620px, 92%); max-height: 64vh; display: flex; flex-direction: column; border-radius: 14px; border: 1px solid var(--line-strong); background: rgba(6, 16, 28, .98); box-shadow: 0 30px 80px rgba(0, 0, 0, .6), 0 0 30px rgba(79, 216, 255, .12); overflow: hidden; }
+.palette .search { margin: 12px; }
+.palette .threads { padding-top: 0; }
+
+/* settings */
+.drawer { position: absolute; top: 48px; right: 0; bottom: 0; width: 400px; max-width: 100%; z-index: 7; padding: 20px 22px; overflow-y: auto;
+  background: rgba(5, 13, 22, .98); border-left: 1px solid var(--line-strong); transform: translateX(100%); transition: transform .3s ease; }
 .drawer.open { transform: none; box-shadow: -20px 0 60px rgba(0, 0, 0, .5); }
-.drawer h3 { margin: 22px 0 10px; font: 11px var(--mono); letter-spacing: .3em; color: var(--muted); font-weight: 400; }
-.drawer h3:first-of-type { margin-top: 6px; }
-.voice { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 4px; text-align: left; }
-.voice:hover { border-color: var(--line-strong); }
-.voice.on { border-color: var(--cyan); background: rgba(79, 216, 255, .08); box-shadow: inset 3px 0 0 var(--cyan); }
-.voice .info { flex: 1; } .voice .name { display: block; font-size: 14px; } .voice .detail { font-size: 11.5px; color: var(--muted); }
-.tag { font: 9.5px var(--mono); letter-spacing: .14em; padding: 2px 6px; border-radius: 2px; border: 1px solid; }
+.drawer h3 { margin: 22px 0 10px; font-weight: 400; }
+.voice { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 10px; text-align: left; }
+.voice.on { border-color: var(--cyan); background: rgba(79, 216, 255, .08); }
+.voice .info { flex: 1; min-width: 0; } .voice .name { display: block; } .voice .detail { font-size: 11.5px; color: var(--muted); }
+.tag { font: 9.5px var(--mono); letter-spacing: .12em; padding: 2px 6px; border-radius: 4px; border: 1px solid; }
 .tag.online { color: var(--cyan); } .tag.offline { color: var(--green); }
 .play { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line-strong); color: var(--cyan); }
-.play:hover { background: rgba(79, 216, 255, .15); }
-.play svg { width: 13px; height: 13px; fill: currentColor; }
+.play svg { width: 12px; height: 12px; fill: currentColor; }
 .slider { display: flex; align-items: center; gap: 12px; }
 input[type=range] { flex: 1; accent-color: var(--cyan); }
 .slider span { width: 56px; text-align: right; font: 12px var(--mono); color: var(--cyan-soft); }
 .toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 2px; border-bottom: 1px solid rgba(79, 216, 255, .08); text-align: left; }
-.switch { width: 38px; height: 20px; border-radius: 10px; background: #1a2b38; position: relative; transition: background .2s; flex: none; }
+.switch { width: 38px; height: 20px; border-radius: 10px; background: #1a2b38; position: relative; flex: none; }
 .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #6f93a8; transition: all .2s; }
 .toggle.on .switch { background: rgba(79, 216, 255, .35); } .toggle.on .switch::after { left: 21px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
-.note { margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.55; }
-.danger { margin-top: 24px; width: 100%; padding: 10px; border: 1px solid rgba(255, 93, 108, .45); color: var(--red); font: 12px var(--mono); letter-spacing: .25em; border-radius: 3px; }
-.danger:hover { background: rgba(255, 93, 108, .12); }
+.note { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.danger { margin-top: 22px; width: 100%; padding: 10px; border: 1px solid rgba(255, 93, 108, .45); color: var(--red); border-radius: 9px; }
 
 /* registration */
-.link-screen { position: absolute; inset: 46px 0 0; z-index: 7; display: grid; place-items: center; background: var(--bg); }
-.link-box { width: min(620px, 90%); padding: 30px 32px; }
-.link-box h2 { margin: 6px 0 12px; font-weight: 500; font-size: 20px; }
-.link-box p { color: var(--muted); margin: 0 0 18px; }
-.link-box textarea { width: 100%; height: 86px; resize: none; padding: 10px 12px; background: rgba(0, 0, 0, .35); color: var(--text); border: 1px solid var(--line-strong); font: 12px var(--mono); outline: none; }
+.link-screen { position: absolute; inset: 48px 0 0; z-index: 9; display: grid; place-items: center; background: var(--bg); padding: 16px; }
+.link-box { width: min(620px, 100%); padding: 28px 30px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel); }
+.link-box h2 { margin: 8px 0 10px; font-weight: 500; font-size: 20px; }
+.link-box p { color: var(--muted); margin: 0 0 16px; }
+.link-box textarea { width: 100%; height: 90px; resize: none; padding: 10px 12px; background: rgba(0, 0, 0, .35); color: var(--text); border: 1px solid var(--line-strong); border-radius: 10px; font: 12px var(--mono); outline: none; }
 .link-box .row { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+.link-box .go { padding: 9px 22px; background: var(--cyan); color: var(--bg); border-radius: 9px; font-weight: 600; }
 .link-box .err { color: var(--red); font-size: 13px; }
-.hidden { display: none !important; }
-.toast { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 8px 16px; background: rgba(5, 20, 32, .95); border: 1px solid var(--line-strong); font-size: 13px; z-index: 8; animation: rise .25s; }
+.toast { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); padding: 8px 16px; border-radius: 10px; background: rgba(5, 20, 32, .96); border: 1px solid var(--line-strong); font-size: 13px; z-index: 10; animation: rise .25s; }
 
+/* phones */
+.only-mobile { display: none; }
+@media (max-width: 760px) {
+  .app, .app.nav-closed { grid-template-columns: 1fr; }
+  .nav { position: absolute; top: 48px; bottom: 0; left: 0; width: 86%; max-width: 330px; z-index: 6; transform: translateX(-102%); transition: transform .28s ease; box-shadow: 20px 0 60px rgba(0, 0, 0, .6); }
+  .app.nav-open .nav { transform: none; }
+  .main { grid-column: 1; }
+  .only-mobile { display: grid; }
+  .desk-only { display: none !important; }
+  canvas#core { width: 190px; height: 190px; }
+  .greet { font-size: 19px; }
+  .col { width: calc(100% - 24px); }
+  .me > div { max-width: 88%; }
+  .ai { padding-left: 30px; }
+  .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .hintline { display: none; }
+  .drawer { width: 100%; }
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes blink { 50% { opacity: .25; } }
+@keyframes pulse { to { opacity: .55; transform: scale(.92); } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 .alert { animation: none; }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app" id="app" data-mode="idle">
   <div class="top pywebview-drag-region">
-    <div class="brand pywebview-drag-region">DAEVIS<small>PERSONAL SYSTEM</small></div>
-    <div class="drag pywebview-drag-region"></div>
-    <div class="link"><span class="dot" id="linkDot"></span><span id="linkText">CONNECTING</span></div>
-    <div class="clock" id="clock">--:--:--</div>
-    <button class="icon-btn" id="openSettings" title="설정 (Ctrl+,)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
-    <button class="icon-btn" id="minBtn" title="최소화"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
-    <button class="icon-btn close" id="closeBtn" title="닫기 (계속 듣습니다)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <button class="icon" id="navBtn" title="대화 목록 (Ctrl+B)"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+    <div class="brand pywebview-drag-region"><span class="mini-orb"></span><span class="desk-only">DAEVIS</span></div>
+    <div class="title pywebview-drag-region" id="title"></div>
+    <div class="link desk-only"><span class="dot" id="linkDot"></span><span id="linkText">CONNECTING</span></div>
+    <button class="icon" id="openSettings" title="설정 (Ctrl+,)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
+    <button class="icon win" id="minBtn" title="최소화"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    <button class="icon close win" id="closeBtn" title="닫기 (계속 듣습니다)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
 
-  <aside class="log frame">
-    <header><span class="label">REQUEST LOG</span><button class="icon-btn" id="refresh" title="새로고침"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></button></header>
-    <div class="entries" id="entries"><div class="empty-log">기록을 불러오는 중…</div></div>
+  <aside class="nav" id="nav">
+    <button class="new" id="newBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 대화<kbd class="desk-only">Ctrl N</kbd></button>
+    <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="navSearch" placeholder="대화 검색" autocomplete="off"><kbd class="desk-only">Ctrl K</kbd></label>
+    <div class="threads" id="threads"><div class="empty-nav">대화를 불러오는 중…</div></div>
+    <div class="nav-foot"><span class="dot" id="linkDot2"></span><span id="pcLabel">이 기기</span></div>
   </aside>
 
   <main class="main">
-    <div class="core-wrap">
-      <canvas id="core" width="460" height="460"></canvas>
-      <div class="mode" id="mode">STANDBY</div>
-      <div class="sub" id="sub">시스템 준비 중</div>
+    <div class="stream" id="stream"><div class="col" id="col"></div></div>
+    <div class="composer">
+      <div class="col">
+        <div class="continuing hidden" id="continuing"><svg viewBox="0 0 24 24"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 0 1 5 5v3"/></svg><span id="continuingText"></span><button id="leaveThread">새 대화로</button></div>
+        <div class="box">
+          <textarea id="input" rows="1" maxlength="500" placeholder="대비스에게 부탁하기…"></textarea>
+          <button class="round mic" id="mic" title="말로 하기"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+          <button class="round send" id="send" title="보내기 (Enter)" disabled><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        </div>
+        <div class="hintline" id="hintline">Enter 보내기 · Shift+Enter 줄바꿈 · Ctrl+K 대화 찾기 · "대비스"라고 부르면 말로도 들어요</div>
+      </div>
     </div>
-    <div class="transcript" id="transcript"></div>
-    <div class="alert frame hidden" id="alert">
-      <div class="label">AUTHORIZATION REQUIRED · 결제 승인</div>
+    <div class="alert hidden" id="alert">
+      <div class="label">결제 승인 요청</div>
       <div class="body" id="alertBody"></div>
       <div class="row"><span class="count" id="alertCount"></span><button class="no" id="deny">취소</button><button class="go" id="allow">결제 진행</button></div>
     </div>
   </main>
 
-  <div class="log-foot mono" id="pcLabel">NODE · ---</div>
-  <div class="cmd frame">
-    <span class="prompt">&gt;</span>
-    <input id="input" maxlength="500" placeholder="대비스에게 부탁할 일을 적거나, &quot;대비스&quot;라고 불러 보세요" autocomplete="off">
-    <button class="icon-btn mic" id="mic" title="호출어 듣기 켜기/끄기"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
-    <button class="send" id="send">EXECUTE</button>
+  <div class="overlay hidden" id="palette">
+    <div class="palette">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="palSearch" placeholder="지난 대화에서 찾기 (요청·답 내용)" autocomplete="off"></label>
+      <div class="threads" id="palResults"></div>
+    </div>
   </div>
 
   <section class="drawer" id="drawer">
-    <div style="display:flex;justify-content:space-between;align-items:center"><span class="label">SYSTEM CONFIG</span><button class="icon-btn" id="closeSettings"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <h3>VOICE · 답변 목소리</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center"><span class="label">설정</span><button class="icon" id="closeSettings"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <h3>답변 목소리</h3>
     <div id="voices"></div>
-    <h3>SPEED · 말하기 속도</h3>
+    <h3>말하기 속도</h3>
     <div class="slider"><input type="range" id="rate" min="-50" max="50" step="5"><span id="rateText">보통</span></div>
-    <h3>BEHAVIOR · 동작</h3>
-    <button class="toggle" data-key="listen"><span>"대비스" 호출어 듣기</span><span class="switch"></span></button>
+    <h3>동작</h3>
+    <button class="toggle" data-key="listen" data-feature="wake"><span>"대비스" 호출어 듣기</span><span class="switch"></span></button>
     <button class="toggle" data-key="speak_typed"><span>글로 보낸 요청도 목소리로 답하기</span><span class="switch"></span></button>
-    <button class="toggle" data-key="autostart"><span>Windows 로그인할 때 자동 실행</span><span class="switch"></span></button>
-    <p class="note">온라인 목소리는 Microsoft Edge 읽어주기 서비스를 써요. 인터넷이 끊기면 Windows 기본 목소리(해미)로 대신 답해요.<br>창을 닫아도 작업 표시줄에서 계속 듣고 있어요. 완전히 끄려면 아래 버튼을 누르세요.</p>
-    <button class="danger" id="quit">SHUT DOWN · 앱 종료</button>
+    <button class="toggle" data-key="autostart" data-feature="autostart"><span>로그인할 때 자동 실행</span><span class="switch"></span></button>
+    <p class="note" id="settingsNote"></p>
+    <button class="danger" id="quit" data-feature="window">앱 종료</button>
   </section>
 
   <section class="link-screen hidden" id="linkScreen">
-    <div class="link-box frame">
-      <span class="label">DEVICE LINK REQUIRED</span>
-      <h2>이 PC를 대비스에 연결해 주세요</h2>
-      <p>Discord에서 대비스에게 <b>PC 등록 노트북</b>처럼 보내면 등록 명령을 받아요. 그 명령을 통째로 아래에 붙여 넣으세요. 코드는 15분 동안 한 번만 쓸 수 있어요.</p>
-      <textarea id="code" placeholder="& ([scriptblock]::Create(...)) -Code '...'"></textarea>
-      <div class="row"><button class="send" id="linkBtn" style="height:36px;padding:0 20px;font:12px var(--mono);letter-spacing:.25em;color:var(--bg);background:var(--cyan);border-radius:3px">LINK</button><span class="err" id="linkErr"></span></div>
+    <div class="link-box">
+      <span class="label">기기 연결</span>
+      <h2>이 기기를 대비스에 연결해 주세요</h2>
+      <p id="linkHelp"></p>
+      <textarea id="code" placeholder="Discord에서 받은 등록 명령이나 코드를 붙여 넣기"></textarea>
+      <div class="row"><button class="go" id="linkBtn">연결</button><span class="err" id="linkErr"></span></div>
     </div>
   </section>
 </div>
@@ -226,185 +283,200 @@ input[type=range] { flex: 1; accent-color: var(--cyan); }
 <script>
 const $ = id => document.getElementById(id);
 const api = () => window.pywebview.api;
-const state = { settings: {}, voices: [], history: [], more: false, selected: null, live: [], mode: 'idle', level: 0, busy: 0, approval: null };
-const MODES = {
-  idle: ['STANDBY', '"대비스"라고 부르거나 아래에 적어 주세요'], wake: ['LISTENING', '듣고 있어요…'],
-  thinking: ['PROCESSING', '처리 중'], speaking: ['RESPONDING', '답하는 중'], off: ['STANDBY', '호출어 듣기를 껐어요'],
-  error: ['ALERT', '문제가 생겼어요'],
-};
-const STATUS = { succeeded: '완료', failed: '실패', running: '진행 중', expired: '응답 없음', uncertain: '응답 없음', cancelled: '취소', unknown: '확인 불가' };
+const state = { settings: {}, voices: [], features: {}, items: [], more: false, thread: null, view: null, live: {}, mode: 'idle', level: 0, busy: 0, approval: null, me: '' };
+const MODES = { idle: ['STANDBY', ''], wake: ['LISTENING', '듣고 있어요…'], thinking: ['PROCESSING', '처리하는 중'], speaking: ['RESPONDING', '답하는 중'], error: ['ALERT', '문제가 생겼어요'] };
+const FAIL = { failed: '처리하지 못했어요.', expired: '답을 받지 못했어요.', uncertain: '답을 받지 못했어요.', cancelled: '취소됐어요.', unknown: '확인할 수 없어요.' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clean = s => String(s ?? '').replace(/\*\*/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}️]/gu, '').trim();
-function split(text) {  // Answer body and the "-# ..." usage footer.
-  const lines = clean(text).split('\n'); const body = [], foot = [];
-  for (const l of lines) (l.startsWith('-# ') ? foot : body).push(l.replace(/^-#\s*/, ''));
-  return { body: body.join('\n').trim(), foot: foot.join('\n') };
+function split(text) {
+  const body = [], foot = [];
+  for (const l of clean(text).split('\n')) (l.startsWith('-# ') ? foot : body).push(l.replace(/^-#\s*/, ''));
+  return { body: body.join('\n').trim(), foot: foot.join(' · ') };
 }
 const pad = n => String(n).padStart(2, '0');
-const hhmm = t => { const d = new Date(t * 1000); return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const clock = t => { const d = new Date(t * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function when(t) {
+  const d = new Date(t * 1000), now = new Date(), days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  return days === 0 ? clock(t) : days === 1 ? '어제' : days < 7 ? `${days}일 전` : `${d.getMonth() + 1}/${d.getDate()}`;
+}
+function bucket(t) {
+  const d = new Date(t * 1000), now = new Date(), days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  return days === 0 ? '오늘' : days === 1 ? '어제' : days < 7 ? '지난 7일' : '이전';
+}
 
-/* ---------- core animation ---------- */
-const canvas = $('core'), g = canvas.getContext('2d');
-let t0 = performance.now(), flash = 0, spoken = Array.from({ length: 64 }, () => 0);
-function color(a) { return state.mode === 'error' ? `rgba(255,93,108,${a})` : `rgba(79,216,255,${a})`; }
+/* ---------- orb ---------- */
+const canvas = document.createElement('canvas'); canvas.id = 'core'; canvas.width = canvas.height = 460;
+const g = canvas.getContext('2d');
+let t0 = performance.now(), flash = 0, bars = Array.from({ length: 64 }, () => 0);
+const color = a => state.mode === 'error' ? `rgba(255,93,108,${a})` : `rgba(79,216,255,${a})`;
 function draw(now) {
-  const t = (now - t0) / 1000, W = canvas.width, c = W / 2;
-  g.clearRect(0, 0, W, W);
-  const m = state.mode, speed = m === 'thinking' ? 3.2 : m === 'wake' ? 1.6 : m === 'speaking' ? 1.2 : 0.35;
-  const lvl = Math.min(1, state.level * 40);
-  flash *= 0.94;
-  // outer tick ring
+  requestAnimationFrame(draw);
+  if (!canvas.isConnected || document.hidden) return;
+  const t = (now - t0) / 1000, c = canvas.width / 2, m = state.mode;
+  const speed = m === 'thinking' ? 3.2 : m === 'wake' ? 1.6 : m === 'speaking' ? 1.2 : 0.35, lvl = Math.min(1, state.level * 40);
+  g.clearRect(0, 0, canvas.width, canvas.height); flash *= 0.94;
   g.save(); g.translate(c, c); g.rotate(t * 0.08 * speed);
-  for (let i = 0; i < 120; i++) {
-    const a = i / 120 * Math.PI * 2, long = i % 10 === 0;
-    g.strokeStyle = color(long ? 0.55 : 0.22); g.lineWidth = long ? 2 : 1;
-    g.beginPath(); g.moveTo(Math.cos(a) * 214, Math.sin(a) * 214); g.lineTo(Math.cos(a) * (long ? 200 : 206), Math.sin(a) * (long ? 200 : 206)); g.stroke();
-  }
+  for (let i = 0; i < 120; i++) { const a = i / 120 * Math.PI * 2, long = i % 10 === 0; g.strokeStyle = color(long ? .55 : .2); g.lineWidth = long ? 2 : 1;
+    g.beginPath(); g.moveTo(Math.cos(a) * 214, Math.sin(a) * 214); g.lineTo(Math.cos(a) * (long ? 200 : 206), Math.sin(a) * (long ? 200 : 206)); g.stroke(); }
   g.restore();
-  // rotating arc segments
-  const rings = [[186, 0.6, 3, 0.9], [168, -0.9, 5, 0.55], [150, 1.4, 2, 0.75]];
-  for (const [r, dir, n, alpha] of rings) {
-    g.save(); g.translate(c, c); g.rotate(t * dir * speed);
-    g.strokeStyle = color(alpha); g.lineWidth = r === 168 ? 6 : 3; g.shadowColor = color(0.9); g.shadowBlur = 14;
-    for (let k = 0; k < n; k++) { const s = k / n * Math.PI * 2; g.beginPath(); g.arc(0, 0, r, s, s + Math.PI * 2 / n * 0.62); g.stroke(); }
+  for (const [r, dir, n, alpha] of [[186, .6, 3, .9], [168, -.9, 5, .55], [150, 1.4, 2, .75]]) {
+    g.save(); g.translate(c, c); g.rotate(t * dir * speed); g.strokeStyle = color(alpha); g.lineWidth = r === 168 ? 6 : 3; g.shadowColor = color(.9); g.shadowBlur = 14;
+    for (let k = 0; k < n; k++) { const s = k / n * Math.PI * 2; g.beginPath(); g.arc(0, 0, r, s, s + Math.PI * 2 / n * .62); g.stroke(); }
     g.restore();
   }
-  // speaking / listening bars
-  if (m === 'speaking' || m === 'wake' || lvl > 0.05) {
+  if (m === 'speaking' || m === 'wake' || lvl > .05) {
     g.save(); g.translate(c, c);
     for (let i = 0; i < 64; i++) {
-      const target = m === 'speaking' ? 0.25 + 0.75 * Math.abs(Math.sin(t * 7 + i * 1.7) * Math.sin(t * 3.1 + i)) : lvl * (0.5 + 0.5 * Math.sin(i * 2.3 + t * 9));
-      spoken[i] += (target - spoken[i]) * 0.25;
-      const a = i / 64 * Math.PI * 2, len = 6 + spoken[i] * 30;
-      g.strokeStyle = color(0.75); g.lineWidth = 3;
-      g.beginPath(); g.moveTo(Math.cos(a) * 112, Math.sin(a) * 112); g.lineTo(Math.cos(a) * (112 + len), Math.sin(a) * (112 + len)); g.stroke();
+      const target = m === 'speaking' ? .25 + .75 * Math.abs(Math.sin(t * 7 + i * 1.7) * Math.sin(t * 3.1 + i)) : lvl * (.5 + .5 * Math.sin(i * 2.3 + t * 9));
+      bars[i] += (target - bars[i]) * .25; const a = i / 64 * Math.PI * 2, len = 6 + bars[i] * 30;
+      g.strokeStyle = color(.75); g.lineWidth = 3; g.beginPath(); g.moveTo(Math.cos(a) * 112, Math.sin(a) * 112); g.lineTo(Math.cos(a) * (112 + len), Math.sin(a) * (112 + len)); g.stroke();
     }
     g.restore();
   }
-  // inner core
-  const pulse = 0.5 + 0.5 * Math.sin(t * (m === 'thinking' ? 6 : 2)), glow = 0.35 + pulse * 0.25 + lvl * 0.5 + flash;
+  const pulse = .5 + .5 * Math.sin(t * (m === 'thinking' ? 6 : 2)), glow = .35 + pulse * .25 + lvl * .5 + flash;
   const grad = g.createRadialGradient(c, c, 4, c, c, 104);
-  grad.addColorStop(0, `rgba(230,250,255,${0.85 + flash * 0.15})`); grad.addColorStop(0.25, color(0.75 * glow + 0.2));
-  grad.addColorStop(0.7, color(0.12)); grad.addColorStop(1, color(0));
+  grad.addColorStop(0, `rgba(230,250,255,${.85 + flash * .15})`); grad.addColorStop(.25, color(.75 * glow + .2)); grad.addColorStop(.7, color(.12)); grad.addColorStop(1, color(0));
   g.fillStyle = grad; g.beginPath(); g.arc(c, c, 104, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = color(0.9); g.lineWidth = 2; g.shadowColor = color(1); g.shadowBlur = 20;
-  g.beginPath(); g.arc(c, c, 96, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = color(.9); g.lineWidth = 2; g.shadowColor = color(1); g.shadowBlur = 20; g.beginPath(); g.arc(c, c, 96, 0, Math.PI * 2); g.stroke();
   g.lineWidth = 1.2; g.beginPath(); g.arc(c, c, 62 + pulse * 4, 0, Math.PI * 2); g.stroke(); g.shadowBlur = 0;
-  // thinking sweep
-  if (m === 'thinking') {
-    g.save(); g.translate(c, c); g.rotate(t * 4);
-    const sweep = g.createConicGradient ? g.createConicGradient(0, 0, 0) : null;
-    if (sweep) { sweep.addColorStop(0, color(0.5)); sweep.addColorStop(0.18, color(0)); sweep.addColorStop(1, color(0)); g.fillStyle = sweep; g.beginPath(); g.arc(0, 0, 140, 0, Math.PI * 2); g.arc(0, 0, 100, 0, Math.PI * 2, true); g.fill(); }
-    g.restore();
-  }
-  requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
 
 function setMode(mode, sub) {
   if (mode === 'idle' && state.busy > 0) mode = 'thinking';
-  if (mode === 'idle' && state.settings.listen === false) mode = 'off';
-  if (mode !== state.mode && (mode === 'wake' || mode === 'speaking')) flash = 0.6;
-  state.mode = mode === 'off' ? 'idle' : mode;
+  if (mode !== state.mode && (mode === 'wake' || mode === 'speaking')) flash = .6;
+  state.mode = mode; $('app').dataset.mode = mode;
   const [label, text] = MODES[mode] || MODES.idle;
-  $('mode').textContent = label; $('sub').textContent = sub || text;
+  const m = document.querySelector('.welcome .mode'), s = document.querySelector('.welcome .sub');
+  if (m) m.textContent = label;
+  if (s) s.textContent = sub || text || idleHint();
+}
+const idleHint = () => state.features.wake && state.settings.listen ? (state.status || '"대비스"라고 부르면 들어요') : state.features.push ? '마이크를 누르고 말해 보세요' : '아래에 적어 보세요';
+
+/* ---------- conversations ---------- */
+function threadsOf(items) {
+  const map = new Map();
+  for (const i of items) {
+    const id = i.thread || i.id, th = map.get(id) || { id, items: [] };
+    th.items.push(i); map.set(id, th);
+  }
+  return [...map.values()].map(th => {
+    th.items.sort((a, b) => a.created - b.created);
+    const last = th.items[th.items.length - 1];
+    return { ...th, title: clean(th.items[0].text), updated: last.created, running: th.items.some(i => i.status === 'running'),
+             snippet: split(last.reply || '').body.split('\n')[0] || (last.status === 'running' ? '처리 중…' : '') };
+  }).sort((a, b) => b.updated - a.updated);
+}
+function highlight(text, q) {
+  const s = esc(text); if (!q) return s;
+  const i = s.toLowerCase().indexOf(esc(q).toLowerCase()); if (i < 0) return s;
+  return s.slice(0, i) + '<mark>' + s.slice(i, i + esc(q).length) + '</mark>' + s.slice(i + esc(q).length);
+}
+function threadList(box, threads, q, more) {
+  if (!threads.length) { box.innerHTML = `<div class="empty-nav">${q ? '찾는 대화가 없어요.' : '아직 대화가 없어요. 첫 요청을 보내 보세요.'}</div>`; return; }
+  let html = '', group = '';
+  for (const th of threads) {
+    const b = bucket(th.updated);
+    if (b !== group && !q) { html += `<div class="group label">${b}</div>`; group = b; }
+    html += `<button class="thread ${state.view === th.id ? 'on' : ''}" data-id="${esc(th.id)}"><span class="t">${th.running ? '<i></i>' : ''}${highlight(th.title, q)}</span><span class="s">${when(th.updated)} · ${highlight(th.snippet, q)}</span></button>`;
+  }
+  if (more) html += '<button class="more" data-more="1">더 오래된 대화</button>';
+  box.innerHTML = html;
+  box.querySelectorAll('.thread').forEach(b => b.onclick = () => { openThread(b.dataset.id); closePalette(); closeNav(); });
+  const m = box.querySelector('[data-more]'); if (m) m.onclick = () => loadHistory(true);
+}
+function renderNav() { threadList($('threads'), threadsOf(state.items), '', state.more); }
+
+const CACHE = 'daevis.history.v1';
+function saveCache() { try { localStorage.setItem(CACHE, JSON.stringify(state.items.slice(0, 300))); } catch (e) {} }
+function loadCache() { try { const items = JSON.parse(localStorage.getItem(CACHE) || '[]'); if (Array.isArray(items)) state.items = items; } catch (e) {} }
+function merge(items) {
+  const byId = new Map(state.items.map(i => [i.id, i]));
+  for (const i of items) byId.set(i.id, i);
+  state.items = [...byId.values()].sort((a, b) => b.created - a.created);
+}
+async function loadHistory(older) {
+  const before = older && state.items.length ? state.items[state.items.length - 1].created : null;
+  const page = await api().history(before, null);
+  if (page.error) { if (!state.items.length) $('threads').innerHTML = `<div class="empty-nav">${esc(page.error)}</div>`; return; }
+  if (!older) {  // The server is the source of truth: drop cached items it no longer has in this window.
+    const oldest = page.items.length ? page.items[page.items.length - 1].created : 0;
+    state.items = state.items.filter(i => i.created < oldest || page.items.some(p => p.id === i.id));
+  }
+  merge(page.items); state.more = page.more; if (page.me) { state.me = page.me; $('pcLabel').textContent = page.me; }
+  saveCache(); renderNav();
+  if (state.view && !state.live[state.view]) renderThread(state.view, false);
+  else if (!state.view && !document.querySelector('.recent') && threadsOf(state.items).length) renderWelcome();
 }
 
-/* ---------- transcript ---------- */
+/* ---------- messages ---------- */
+const scrollEnd = () => { const s = $('stream'); s.scrollTop = s.scrollHeight; };
+function steps(list, done) {
+  if (!list || !list.length) return '';
+  if (done) return `<details class="trace"><summary>${list.length}단계 거침</summary><ol class="steps">${list.map(s => `<li>${esc(s)}</li>`).join('')}</ol></details>`;
+  return '<ol class="steps">' + list.map((s, i) => `<li class="${i === list.length - 1 ? 'now' : ''}">${esc(s)}</li>`).join('') + '</ol>';
+}
+function msgHTML(i) {
+  const via = i.via === 'voice' ? '음성' : '텍스트';
+  return `<div class="msg" data-id="${esc(i.id)}"><div class="me"><div><div class="bubble">${esc(clean(i.text))}</div><div class="meta">${via} · ${i.pc ? esc(i.pc) + ' · ' : ''}${clock(i.created)}</div></div></div></div>
+          <div class="msg ai ${i.status === 'running' ? 'pending' : ''} ${['failed', 'expired', 'uncertain', 'cancelled'].includes(i.status) ? 'fail' : ''}" data-ai="${esc(i.id)}"><div class="body"></div></div>`;
+}
+function fillAI(node, text, ok, animate, traced) {
+  const parts = split(text);
+  node.classList.remove('pending'); node.classList.toggle('fail', !ok);
+  node.querySelector('.body').innerHTML = steps(traced, true) + '<div class="text"></div>' + (parts.foot ? `<div class="foot">${esc(parts.foot)}</div>` : '') +
+    '<div class="tools"><button class="chip copy">복사</button></div>';
+  const el = node.querySelector('.text');
+  if (animate && !document.hidden) typeOut(el, parts.body || '처리했어요.'); else el.textContent = parts.body || '처리했어요.';
+  node.querySelector('.copy').onclick = () => { navigator.clipboard.writeText(parts.body); toast('복사했어요'); };
+}
 function typeOut(el, text) {
-  if (document.hidden) { el.textContent = text; return; }  // Minimised windows throttle timers.
-  el.textContent = ''; let i = 0;
-  const step = Math.max(2, Math.ceil(text.length / 160));
+  let i = 0; const step = Math.max(2, Math.ceil(text.length / 140));
   const timer = setInterval(() => { i += step; el.textContent = text.slice(0, i); scrollEnd(); if (i >= text.length) clearInterval(timer); }, 16);
   el.onclick = () => { clearInterval(timer); el.textContent = text; };
 }
-const scrollEnd = () => { const t = $('transcript'); t.scrollTop = t.scrollHeight; };
-function turnHTML(item, live) {
-  const via = item.via === 'voice' ? 'VOICE' : 'TEXT';
-  return `<div class="turn" data-job="${esc(item.job || item.id)}"><div class="you"><div class="who">YOU · ${via}</div><div class="text">${esc(clean(item.text))}</div></div>
-    <div class="ai ${item.failed ? 'fail' : ''}"><div class="who">DAEVIS</div><div class="body"></div><div class="foot"></div>
-    <div class="tools hidden"><button class="chip copy">COPY</button></div></div></div>`;
+function renderWelcome() {
+  state.view = null; setThread(null); $('title').innerHTML = '';
+  const recent = threadsOf(state.items).slice(0, 4);
+  $('col').innerHTML = `<div class="welcome"><div id="orbSlot"></div><div class="mode">STANDBY</div><div class="sub"></div>
+    <div class="greet">무엇을 도와드릴까요?</div>
+    <div class="chips">${['오늘 일정 알려줘', '안 읽은 메일 요약해줘', '내일 아침 날씨 어때?', '배민에서 초밥집 찾아줘'].map(s => `<button>${s}</button>`).join('')}</div>
+    ${recent.length ? `<div class="recent"><span class="label">이어서 하기</span>${recent.map(t => `<button data-id="${esc(t.id)}"><span>${esc(t.title)}</span><span>${when(t.updated)}</span></button>`).join('')}</div>` : ''}</div>`;
+  $('orbSlot').replaceWith(canvas);
+  $('col').querySelectorAll('.chips button').forEach(b => b.onclick = () => { $('input').value = b.textContent; autosize(); $('input').focus(); });
+  $('col').querySelectorAll('.recent button').forEach(b => b.onclick = () => openThread(b.dataset.id));
+  setMode(state.mode); renderNav();
 }
-function fillAnswer(node, text, ok, animate) {
-  const parts = split(text), ai = node.querySelector('.ai'), body = node.querySelector('.body');
-  ai.classList.toggle('fail', !ok);
-  body.innerHTML = '<div class="text"></div>';
-  const el = body.firstChild;
-  if (animate) typeOut(el, parts.body || '처리했어요.'); else el.textContent = parts.body || '…';
-  node.querySelector('.foot').textContent = parts.foot;
-  node.querySelector('.tools').classList.remove('hidden');
-  node.querySelector('.copy').onclick = () => { navigator.clipboard.writeText(parts.body); toast('복사했어요'); };
-}
-function timeline(e) {  // Every step the agent has taken; the last one is still running.
-  const steps = (e.steps && e.steps.length ? e.steps : [clean(e.text).replace(/^⏳\s*/, '').replace(/…$/, '')]).map(esc);
-  return '<ol class="steps">' + steps.map((s, i) => `<li class="${i === steps.length - 1 ? 'now' : 'done'}">${s}</li>`).join('') + '</ol>';
-}
-function renderLive() {
-  const box = $('transcript');
-  if (state.selected) return;
-  if (!state.live.length) {
-    box.innerHTML = `<div class="welcome"><div>무엇을 도와드릴까요?</div><div class="hint">
-      ${['오늘 일정 알려줘', '내일 서울 날씨 어때?', '안 읽은 메일 요약해줘', '배민에서 초밥집 찾아줘'].map(s => `<button>${s}</button>`).join('')}</div></div>`;
-    box.querySelectorAll('.hint button').forEach(b => b.onclick = () => { $('input').value = b.textContent; $('input').focus(); });
+function renderThread(id, scroll = true) {
+  const th = threadsOf(state.items).find(t => t.id === id);
+  state.view = id;
+  const live = state.live[id] || [];
+  const items = (th ? th.items : []).filter(i => !live.some(l => l.id === i.id)).concat(live);
+  $('col').innerHTML = items.map(msgHTML).join('');
+  for (const i of items) {
+    const node = $('col').querySelector(`[data-ai="${i.id}"]`);
+    if (i.status === 'running') node.querySelector('.body').innerHTML = i.steps && i.steps.length ? steps(i.steps) : `<div class="live-step">${esc(i.step || '처리하는 중…')}</div>`;
+    else fillAI(node, i.reply || FAIL[i.status] || '답이 기록되지 않았어요.', i.status === 'succeeded', false, i.steps);
   }
+  $('title').innerHTML = `<b>${esc(clean(items[0] ? items[0].text : ''))}</b>`;
+  setThread(id); renderNav(); if (scroll) scrollEnd();
 }
-function liveTurn(event) {
-  if (state.selected) closeArchive();
-  const box = $('transcript');
-  if (!state.live.length) box.innerHTML = '';
-  state.live.push(event);
-  box.insertAdjacentHTML('beforeend', turnHTML(event, true));
-  const node = box.lastElementChild;
-  node.querySelector('.body').innerHTML = '<div class="step">요청을 보내는 중…</div>';
-  scrollEnd();
-  return node;
-}
-const nodeFor = job => [...$('transcript').querySelectorAll('.turn')].reverse().find(n => n.dataset.job === job);
-
-/* ---------- archive (history) ---------- */
-function renderHistory(error) {
-  const box = $('entries');
-  if (error && !state.history.length) { box.innerHTML = `<div class="empty-log">${esc(error)}</div>`; return; }
-  if (!state.history.length) { box.innerHTML = '<div class="empty-log">아직 기록이 없어요.</div>'; return; }
-  box.innerHTML = state.history.map(i => `<button class="entry ${state.selected === i.id ? 'on' : ''}" data-id="${esc(i.id)}">
-      <span class="q">${esc(clean(i.text))}</span><span class="m"><i class="${esc(i.status)}"></i>${hhmm(i.created)} · ${i.via === 'voice' ? '음성' : '텍스트'} · ${esc(STATUS[i.status] || i.status)}</span></button>`).join('')
-    + (state.more ? '<button class="more" id="moreBtn">LOAD OLDER</button>' : '');
-  box.querySelectorAll('.entry').forEach(b => b.onclick = () => openArchive(b.dataset.id));
-  if (state.more) $('moreBtn').onclick = () => loadHistory(true);
-}
-async function loadHistory(older) {
-  const before = older && state.history.length ? state.history[state.history.length - 1].created : null;
-  const page = await api().history(before);
-  if (page.error) { renderHistory(page.error); return; }
-  state.history = (older ? state.history : []).concat(page.items); state.more = page.more;
-  if (page.me) $('pcLabel').textContent = 'NODE · ' + page.me;
-  renderHistory();
-}
-function openArchive(id) {
-  const item = state.history.find(i => i.id === id); if (!item) return;
-  state.selected = id; renderHistory();
-  const box = $('transcript');
-  box.innerHTML = `<div class="banner"><span>ARCHIVE · ${hhmm(item.created)} · ${esc(item.pc)} · ${esc(STATUS[item.status] || item.status)}</span><button id="backLive">RETURN TO LIVE ›</button></div>` + turnHTML({ ...item, failed: item.status !== 'succeeded' && item.status !== 'running' });
-  fillAnswer(box.lastElementChild, item.reply || (item.status === 'running' ? '아직 처리 중이에요.' : '답이 기록되지 않았어요.'), item.status === 'succeeded' || item.status === 'running', false);
-  $('backLive').onclick = closeArchive;
-}
-function closeArchive() {
-  state.selected = null; renderHistory();
-  const box = $('transcript'); box.innerHTML = '';
-  if (!state.live.length) { renderLive(); return; }
-  const done = state.live; state.live = [];
-  for (const e of done) { const node = liveTurn(e); if (e.answer) fillAnswer(node, e.answer.text, e.answer.ok, false); }
+function openThread(id) { renderThread(id); $('input').focus(); }
+function setThread(id) {
+  state.thread = id;
+  const th = id && threadsOf(state.items).find(t => t.id === id);
+  $('continuing').classList.toggle('hidden', !id);
+  $('continuingText').textContent = th ? `"${th.title.slice(0, 40)}" 대화에 이어서 묻기` : '이 대화에 이어서 묻기';
 }
 
 /* ---------- payment ---------- */
 let countdown = null;
-function showApproval(event) {
-  state.approval = event; const a = event.approval;
-  $('alertBody').textContent = clean(a.text).replace(/\n?\d+분?\s*\d*초? 안에 고르지 않으면 결제하지 않습니다\.?/, '').trim();
+function showApproval(e) {
+  state.approval = e; const a = e.approval;
+  $('alertBody').textContent = clean(a.text).replace(/\n?\d+분?\s*\d*초? 안에 고르지 않으면 결제하지 않습니다\.?/, '').replace(/^결제 확인\n?/, '').trim();
   $('alert').classList.remove('hidden');
-  let left = Math.max(0, a.expires_in | 0);
-  clearInterval(countdown);
-  const tick = () => { $('alertCount').textContent = left > 0 ? `${left}초 안에 고르지 않으면 결제하지 않아요` : '시간이 지났어요'; left--; if (left < -1) hideApproval(); };
+  let left = Math.max(0, a.expires_in | 0); clearInterval(countdown);
+  const tick = () => { $('alertCount').textContent = left > 0 ? `${left}초 안에 고르지 않으면 결제하지 않아요` : '시간이 지났어요'; if (--left < -1) hideApproval(); };
   tick(); countdown = setInterval(tick, 1000);
 }
 function hideApproval() { clearInterval(countdown); state.approval = null; $('alert').classList.add('hidden'); }
@@ -414,87 +486,140 @@ async function answerApproval(value) {
   toast(r.ok ? (value === 'allow' ? '결제 진행을 전달했어요' : '결제를 취소했어요') : r.error);
 }
 
+/* ---------- search palette ---------- */
+let searchTimer = null;
+function openPalette() { $('palette').classList.remove('hidden'); $('palSearch').value = ''; runSearch(''); setTimeout(() => $('palSearch').focus(), 20); }
+function closePalette() { $('palette').classList.add('hidden'); }
+function runSearch(q) {
+  q = q.trim();
+  const local = threadsOf(state.items).filter(t => !q || t.items.some(i => (i.text + ' ' + (i.reply || '')).toLowerCase().includes(q.toLowerCase())));
+  threadList($('palResults'), local.slice(0, 30), q, false);
+  clearTimeout(searchTimer);
+  if (q) searchTimer = setTimeout(async () => {  // Older conversations beyond what this device has cached.
+    const page = await api().history(null, q);
+    if (page.items && page.items.length) { merge(page.items); saveCache(); if ($('palSearch').value.trim() === q) runSearch(q); }
+  }, 300);
+}
+
 /* ---------- settings ---------- */
 function renderSettings() {
-  const s = state.settings;
-  $('voices').innerHTML = state.voices.map(v => `<button class="voice ${s.voice === v.id ? 'on' : ''}" data-id="${v.id}">
+  const s = state.settings, f = state.features;
+  $('voices').innerHTML = state.voices.map(v => `<button class="voice ${s.voice === v.id ? 'on' : ''}" data-id="${esc(v.id)}">
       <span class="info"><span class="name">${esc(v.name)}</span><span class="detail">${esc(v.detail)}</span></span>
       <span class="tag ${v.online ? 'online' : 'offline'}">${v.online ? 'ONLINE' : 'OFFLINE'}</span>
-      <span class="play" data-play="${v.id}" title="들어보기"><svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg></span></button>`).join('');
+      <span class="play" data-play="1" title="들어보기"><svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg></span></button>`).join('');
   $('voices').querySelectorAll('.voice').forEach(b => b.onclick = async ev => {
-    const id = b.dataset.id;
-    if (ev.target.closest('[data-play]')) { api().preview(id, s.rate); return; }
-    if ((await api().set_setting('voice', id)).ok) { s.voice = id; renderSettings(); api().preview(id, s.rate); }
+    if (ev.target.closest('[data-play]')) { api().preview(b.dataset.id, s.rate); return; }
+    if ((await api().set_setting('voice', b.dataset.id)).ok) { s.voice = b.dataset.id; renderSettings(); api().preview(b.dataset.id, s.rate); }
   });
   $('rate').value = s.rate; $('rateText').textContent = s.rate ? (s.rate > 0 ? '+' : '') + s.rate + '%' : '보통';
   document.querySelectorAll('.toggle').forEach(t => t.classList.toggle('on', !!s[t.dataset.key]));
-  $('mic').classList.toggle('off', !s.listen);
+  document.querySelectorAll('[data-feature]').forEach(el => el.classList.toggle('hidden', !f[el.dataset.feature]));
+  document.querySelectorAll('.win').forEach(el => el.classList.toggle('hidden', !f.window));
+  $('mic').classList.toggle('off', !!f.wake && !s.listen);
+  $('mic').title = f.push ? '눌러서 말하기' : (s.listen ? '호출어 듣기 끄기' : '호출어 듣기 켜기');
+  $('settingsNote').textContent = (state.voices.some(v => v.online) ? '온라인 목소리는 인터넷이 끊기면 기기 기본 목소리로 대신 답해요. ' : '') +
+    (f.window ? '창을 닫아도 작업 표시줄에서 계속 들어요. 완전히 끄려면 아래 버튼을 누르세요.' : '');
+  $('hintline').classList.toggle('hidden', !f.window);
 }
 async function setSetting(key, value) {
-  if ((await api().set_setting(key, value)).ok) { state.settings[key] = value; renderSettings(); if (key === 'listen') setMode('idle'); }
+  if ((await api().set_setting(key, value)).ok) { state.settings[key] = value; renderSettings(); setMode(state.mode); }
 }
 
-/* ---------- events from Python ---------- */
+/* ---------- events from the host ---------- */
+function liveItem(job) { for (const id in state.live) { const i = state.live[id].find(x => x.id === job); if (i) return i; } return null; }
 window.daevis = {
   batch(list) { for (const e of list) this.on(e); },
   on(e) {
     switch (e.kind) {
-      case 'started': state.busy++; liveTurn({ job: e.job, text: e.text, via: e.via }); setMode('thinking'); setTimeout(() => loadHistory(), 2000); break;
-      case 'step': { const n = e.job && nodeFor(e.job); if (n && !n.querySelector('.body .text')) n.querySelector('.body').innerHTML = timeline(e); setMode('thinking', clean(e.text)); break; }
+      case 'started': {
+        state.busy++;
+        const thread = e.thread || e.job, item = { id: e.job, thread, text: e.text, via: e.via, status: 'running', created: Date.now() / 1000, pc: state.me };
+        (state.live[thread] = state.live[thread] || []).push(item);
+        if (state.view !== thread) renderThread(thread); else { $('col').insertAdjacentHTML('beforeend', msgHTML(item)); scrollEnd(); setThread(thread); }
+        const node = $('col').querySelector(`[data-ai="${e.job}"]`); if (node) node.querySelector('.body').innerHTML = '<div class="live-step">보내는 중…</div>';
+        setMode('thinking'); setTimeout(() => loadHistory(), 2500); break;
+      }
+      case 'step': {
+        const item = liveItem(e.job); if (item) { item.step = clean(e.text); item.steps = e.steps && e.steps.length ? e.steps : [item.step.replace(/…$/, '')]; }
+        const node = e.job && $('col').querySelector(`[data-ai="${e.job}"]`);
+        if (node && node.classList.contains('pending')) { node.querySelector('.body').innerHTML = steps(item ? item.steps : [clean(e.text)]); scrollEnd(); }
+        setMode('thinking', clean(e.text)); break;
+      }
       case 'approval': showApproval(e); break;
       case 'approval_closed': if (state.approval && state.approval.job === e.job) hideApproval(); break;
       case 'answer': {
         state.busy = Math.max(0, state.busy - 1);
-        const live = state.live.find(x => x.job === e.job); if (live) live.answer = { text: e.text, ok: e.ok };
-        const n = e.job && nodeFor(e.job);
-        if (n) fillAnswer(n, e.text, e.ok, true); else toast(clean(e.text));
+        const item = liveItem(e.job);
+        if (item) { item.status = e.ok ? 'succeeded' : 'failed'; item.reply = e.text; }
+        const node = e.job && $('col').querySelector(`[data-ai="${e.job}"]`);
+        if (node) fillAI(node, e.text, e.ok, true, item && item.steps); else if (!e.job) toast(clean(e.text));
         setMode(e.ok ? 'idle' : 'error'); if (!e.ok) setTimeout(() => state.mode === 'error' && setMode('idle'), 2500);
-        if (e.job) loadHistory(); break;
+        if (e.job) setTimeout(() => { for (const id in state.live) state.live[id] = state.live[id].filter(x => x.id !== e.job); loadHistory(); }, 800);
+        break;
       }
       case 'mode': setMode(e.mode); break;
       case 'level': state.level = e.value; break;
-      case 'status': if (state.mode === 'idle' || state.mode === 'off') $('sub').textContent = e.text; if (e.level === 'warn') setLink('warn', 'NODE WARN'); break;
+      case 'listening': $('mic').classList.toggle('listening', !!e.on); if (e.on) setMode('wake'); else if (state.mode === 'wake') setMode('idle'); break;
+      case 'heard': $('input').value = e.text; autosize(); break;
+      case 'toast': toast(e.text); break;
+      case 'status': state.status = e.text; if (state.mode === 'idle') setMode('idle'); if (e.level === 'warn') setLink('warn', 'NODE WARN'); break;
     }
   },
 };
-function setLink(kind, text) { $('linkDot').className = 'dot ' + kind; $('linkText').textContent = text; }
-function toast(text) {
-  const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; document.querySelector('.app').appendChild(el);
-  setTimeout(() => el.remove(), 2600);
-}
+function setLink(kind, text) { $('linkDot').className = 'dot ' + kind; $('linkDot2').className = 'dot ' + kind; $('linkText').textContent = text; }
+function toast(text) { const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; $('app').appendChild(el); setTimeout(() => el.remove(), 2600); }
 
 /* ---------- input ---------- */
+function autosize() { const t = $('input'); t.style.height = 'auto'; t.style.height = Math.min(180, t.scrollHeight) + 'px'; $('send').disabled = !t.value.trim(); }
 async function send() {
   const input = $('input'), text = input.value.trim(); if (!text) return;
-  input.value = '';
-  const r = await api().send(text);
+  input.value = ''; autosize();
+  const r = await api().send(text, state.thread);
   if (!r.ok) toast(r.error); else if (r.queued) toast('앞 요청이 끝나면 이어서 처리해요');
 }
+function newChat() { renderWelcome(); closeNav(); $('input').focus(); }
+const closeNav = () => $('app').classList.remove('nav-open');
+$('input').addEventListener('input', autosize);
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 $('send').onclick = send;
-$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send(); } });
-$('mic').onclick = () => setSetting('listen', !state.settings.listen);
+$('mic').onclick = () => state.features.push ? api().listen(state.thread) : setSetting('listen', !state.settings.listen);
+$('newBtn').onclick = newChat;
+$('leaveThread').onclick = newChat;
+$('navBtn').onclick = () => matchMedia('(max-width: 760px)').matches ? $('app').classList.toggle('nav-open') : $('app').classList.toggle('nav-closed');
+$('navSearch').addEventListener('focus', e => { e.target.blur(); openPalette(); });
+$('palSearch').addEventListener('input', e => runSearch(e.target.value));
+$('palette').addEventListener('click', e => { if (e.target === $('palette')) closePalette(); });
 $('openSettings').onclick = () => $('drawer').classList.toggle('open');
 $('closeSettings').onclick = () => $('drawer').classList.remove('open');
 $('rate').oninput = e => { $('rateText').textContent = +e.target.value ? (e.target.value > 0 ? '+' : '') + e.target.value + '%' : '보통'; };
 $('rate').onchange = e => setSetting('rate', +e.target.value);
 document.querySelectorAll('.toggle').forEach(t => t.onclick = () => setSetting(t.dataset.key, !state.settings[t.dataset.key]));
 $('minBtn').onclick = () => api().minimize();
-$('closeBtn').onclick = () => { api().hide(); };
+$('closeBtn').onclick = () => api().hide();
 $('quit').onclick = () => api().quit();
-$('refresh').onclick = () => loadHistory();
 $('allow').onclick = () => answerApproval('allow');
 $('deny').onclick = () => answerApproval('deny');
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') $('drawer').classList.remove('open');
-  if (e.ctrlKey && e.key === ',') { e.preventDefault(); $('drawer').classList.toggle('open'); }
+  const k = e.key.toLowerCase();
+  if (e.key === 'Escape') { closePalette(); $('drawer').classList.remove('open'); closeNav(); }
+  if ((e.ctrlKey || e.metaKey) && k === 'k') { e.preventDefault(); openPalette(); }
+  if ((e.ctrlKey || e.metaKey) && k === 'n') { e.preventDefault(); newChat(); }
+  if ((e.ctrlKey || e.metaKey) && k === 'b') { e.preventDefault(); $('navBtn').click(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === ',') { e.preventDefault(); $('drawer').classList.toggle('open'); }
 });
-setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false }); }, 1000);
+window.addEventListener('focus', () => { if (!$('drawer').classList.contains('open') && $('palette').classList.contains('hidden') && $('linkScreen').classList.contains('hidden')) $('input').focus(); });
 
 async function boot() {
   const b = await api().boot();
-  state.settings = b.settings; state.voices = b.voices; renderSettings();
+  state.settings = b.settings; state.voices = b.voices; state.status = b.status;
+  state.features = b.features || { wake: true, autostart: true, window: true, push: false };
+  renderSettings();
   if (!b.registered) {
     $('linkScreen').classList.remove('hidden'); setLink('warn', 'NOT LINKED');
+    $('linkHelp').innerHTML = state.features.window
+      ? 'Discord에서 대비스에게 <b>PC 등록 노트북</b>처럼 보내면 등록 명령을 받아요. 그 명령을 통째로 붙여 넣으세요. 코드는 15분 동안 한 번만 쓸 수 있어요.'
+      : 'Discord에서 대비스에게 <b>폰 등록 갤럭시</b>처럼 보내면 등록 명령을 받아요. 그 명령을 통째로 붙여 넣으세요. 코드는 15분 동안 한 번만 쓸 수 있어요.';
     $('linkBtn').onclick = async () => {
       $('linkErr').textContent = '연결하는 중…';
       const r = await api().register($('code').value);
@@ -502,13 +627,9 @@ async function boot() {
     };
     return;
   }
-  setLink('ok', 'LINK ONLINE'); $('pcLabel').textContent = 'NODE · ' + (b.pc || 'THIS PC').toUpperCase();
-  setMode('idle', b.settings.listen ? (b.status || '음성 인식 모델을 불러오는 중…') : undefined);
-  renderLive(); loadHistory(); $('input').focus();
+  setLink('ok', 'LINK ONLINE'); if (b.pc) { state.me = b.pc; $('pcLabel').textContent = b.pc; }
+  loadCache(); renderWelcome(); loadHistory(); $('input').focus(); autosize();
 }
-// Typing goes straight to the command line whenever the window is brought forward.
-window.addEventListener('focus', () => { if (!$('drawer').classList.contains('open') && $('linkScreen').classList.contains('hidden')) $('input').focus(); });
-document.querySelector('.main').addEventListener('click', e => { if (!window.getSelection().toString() && !e.target.closest('button')) $('input').focus(); });
 window.addEventListener('pywebviewready', boot);
 </script>
 </body>

@@ -43,11 +43,11 @@ class Controller:
     def say(self, text):
         self.speaker.speak(text, self.settings['voice'], self.settings['rate'])
 
-    def request(self, text, via):
+    def request(self, text, via, thread=None):
         speak = via == 'voice' or self.settings['speak_typed']
         with self.busy:
             try:
-                job = self.relay.submit(text, via)
+                job = self.relay.submit(text, via, thread=thread) if thread else self.relay.submit(text, via)
             except ValueError as error:
                 self.emit({'kind': 'answer', 'job': None, 'ok': False, 'text': str(error)})
                 return
@@ -56,7 +56,7 @@ class Controller:
                 if speak:
                     self.say('서버에 연결하지 못했어요.')
                 return
-            self.emit({'kind': 'started', 'job': job, 'text': text, 'via': via})
+            self.emit({'kind': 'started', 'job': job, 'text': text, 'via': via, 'thread': thread or job})
             seen = {'say': False, 'approval': None}
 
             def update(state):

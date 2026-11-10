@@ -29,11 +29,11 @@ def _summary(job_id, state):
     return summary
 
 
-def ask(relay, text, wait=True):
+def ask(relay, text, wait=True, thread=None):
     text = (text or '').strip()
     if not 1 <= len(text) <= 500:
         return {'status': 'rejected', 'error': '요청은 1~500자여야 합니다.'}
-    job_id = relay.submit(text, 'typed')
+    job_id = relay.submit(text, 'typed', thread=thread) if thread else relay.submit(text, 'typed')
     if not wait:
         return {'id': job_id, 'status': 'queued'}
     seen = {'steps': []}
@@ -50,10 +50,11 @@ def request_status(relay, job_id):
     return {**_summary(job_id, state), 'steps': (state.get('result') or {}).get('steps', [])}
 
 
-def history(relay, limit=10, before=None):
-    page = relay.history(before=before, limit=max(1, min(50, int(limit))))
-    items = [{'id': i.get('id'), 'text': i.get('text'), 'answer': i.get('reply', ''), 'status': i.get('status'),
-              'created': i.get('created')} for i in page.get('items', [])]
+def history(relay, limit=10, before=None, query=None):
+    size = max(1, min(50, int(limit)))
+    page = relay.history(before=before, limit=size, q=query) if query else relay.history(before=before, limit=size)
+    items = [{'id': i.get('id'), 'thread': i.get('thread', i.get('id')), 'text': i.get('text'), 'answer': i.get('reply', ''),
+              'status': i.get('status'), 'created': i.get('created')} for i in page.get('items', [])]
     return {'items': items, 'more': bool(page.get('more'))}
 
 
@@ -62,11 +63,12 @@ def build(relay):
     server = FastMCP('daevis')
 
     @server.tool(name='ask')
-    def ask_tool(text: str, wait: bool = True) -> str:
+    def ask_tool(text: str, wait: bool = True, thread: str | None = None) -> str:
         """Ask Daevis, the owner's personal assistant (KakaoTalk, mail, schedule, Baemin, web, PC/phone control).
         Write the request in Korean as the owner would say it. wait=true blocks until the answer (up to ~5 min,
-        the main server may need 1-3 min to boot); wait=false returns an id for request_status."""
-        return json.dumps(ask(relay, text, wait), ensure_ascii=False)
+        the main server may need 1-3 min to boot); wait=false returns an id for request_status. To ask a
+        follow-up in the same conversation, pass the id of an earlier request as thread."""
+        return json.dumps(ask(relay, text, wait, thread), ensure_ascii=False)
 
     @server.tool(name='request_status')
     def status_tool(id: str) -> str:
@@ -74,10 +76,11 @@ def build(relay):
         return json.dumps(request_status(relay, id), ensure_ascii=False)
 
     @server.tool(name='history')
-    def history_tool(limit: int = 10, before: float | None = None) -> str:
-        """Recent requests and answers from the owner's registered PCs, newest first. Use the last item's
-        created value as before to page back."""
-        return json.dumps(history(relay, limit, before), ensure_ascii=False)
+    def history_tool(limit: int = 10, before: float | None = None, query: str | None = None) -> str:
+        """Recent requests and answers from the owner's registered devices, newest first. query searches
+        request and answer text. Use the last item's created value as before to page back. Items of one
+        conversation share the same thread id."""
+        return json.dumps(history(relay, limit, before, query), ensure_ascii=False)
 
     return server
 

@@ -56,11 +56,13 @@ class Relay:
         self.label = config.get('label') or '이 PC'
         self.post = post or http_post(config['url'], Path(config['token_file']).read_text(encoding='utf-8').strip())
 
-    def submit(self, text, via):
+    def submit(self, text, via, thread=None):
         text = (text or '').strip()
         if not 1 <= len(text) <= 500:
             raise ValueError('요청은 1~500자로 적어 주세요.')
         payload = {'text': text} if via == 'voice' else {'text': text, 'via': via}
+        if thread:
+            payload['thread'] = thread  # Continue that conversation.
         receipt = self.post('/request', {'node': self.node, 'target': 'voice', 'action': 'voice_command', 'payload': payload,
                                          'request_key': 'app-' + uuid.uuid4().hex, 'ttl_seconds': 300})
         return receipt['id']
@@ -90,10 +92,12 @@ class Relay:
             sleep(1)
         return {'status': 'timeout', 'result': None}
 
-    def history(self, before=None, limit=20):
+    def history(self, before=None, limit=20, q=None):
         body = {'node': self.node, 'limit': limit}
         if before is not None:
             body['before'] = before
+        if q:
+            body['q'] = q
         return self.post('/history', body)
 
     def approve(self, job_id, approval, value):

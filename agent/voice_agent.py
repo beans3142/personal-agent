@@ -62,7 +62,7 @@ async def report_loop(outbox, report):
             log.warning('progress report failed (%s)', type(error).__name__)
 
 
-async def voice_turn(gateway, text, report=None, via='voice'):
+async def voice_turn(gateway, text, report=None, via='voice', topic=None):
     from .artifacts import async_outbox_scope
     dm = await gateway.owner_dm()
     if hasattr(gateway, 'last_activity'):
@@ -74,8 +74,9 @@ async def voice_turn(gateway, text, report=None, via='voice'):
         approvals = asyncio.create_task(gateway.watch_approvals(dm, outbox))
         reporter = asyncio.create_task(report_loop(outbox, report)) if report else None
         try:
-            # Requests from the PC always start a new conversation topic.
-            reply = await asyncio.to_thread(gateway.turn, str(dm.id), '[[topic:new]] ' + text, gateway.approver(dm))
+            # A new request starts a conversation topic; a follow-up from the app continues its thread's topic.
+            prefix = '[[topic:%s]] ' % topic if topic else '[[topic:new]] '
+            reply = await asyncio.to_thread(gateway.turn, str(dm.id), prefix + text, gateway.approver(dm))
         except Exception as error:
             log.warning('voice turn failed (%s)', type(error).__name__)
             reply = str(error) if type(error).__name__ == 'HermesError' else '처리 중 오류가 났어요.'
@@ -85,7 +86,18 @@ async def voice_turn(gateway, text, report=None, via='voice'):
                 reporter.cancel()
         await gateway.send_long(dm, mark + text + '\n\n' + reply)
         await gateway.send_outbox(dm)
-    return receipt(reply)
+    result = receipt(reply)
+    last = getattr(gateway, '_last_topic', None)
+    if isinstance(last, dict) and last.get('id'):
+        result['topic'] = last['id']  # Lets the next follow-up in this thread continue the same topic.
+        result = receipt_fit(result)
+    return result
+
+
+def receipt_fit(result):
+    while len(json.dumps(result, ensure_ascii=False)) > RESULT_LIMIT:
+        result['text'] = result['text'][:len(result['text']) - 60] + '…'
+    return result
 
 
 async def poll_once(post, answer, node):
@@ -97,7 +109,8 @@ async def poll_once(post, answer, node):
         def report(state):
             return post('/progress', {'node': node, 'id': job['id'], 'result': state}).get('answers', [])
         try:
-            result, status = await answer(job['payload']['text'], job['payload'].get('via', 'voice'), report), 'succeeded'
+            payload = job['payload']
+            result, status = await answer(payload['text'], payload.get('via', 'voice'), report, payload.get('topic')), 'succeeded'
         except Exception:
             log.exception('voice answer failed')
             result = {'reply': '처리 중 오류가 났어요.'}
@@ -121,7 +134,7 @@ async def agent_loop(gateway, base, token, node='agent-main'):
     post = relay_post(base, token)
     while True:
         try:
-            await poll_once(post, lambda text, via, report: voice_turn(gateway, text, report, via), node)
+            await poll_once(post, lambda text, via, report, topic=None: voice_turn(gateway, text, report, via, topic), node)
             await asyncio.sleep(2)
         except Exception as error:
             log.warning('voice relay unavailable (%s)', type(error).__name__)

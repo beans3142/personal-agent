@@ -158,9 +158,12 @@ class DeviceStore:
                 raise ValueError('message requires text (1..240 chars) only')
         elif action == 'voice_command':
             # Spoken or typed request text; 'via' only says how it was entered.
-            if (set(payload) not in ({'text'}, {'text', 'via'}) or not isinstance(payload['text'], str)
-                    or not 1 <= len(payload['text'].strip()) <= 500 or payload.get('via', 'voice') not in ('voice', 'typed')):
-                raise ValueError('voice_command requires text (1..500 chars) and optional via')
+            # Spoken or typed request text; 'via' says how it was entered, 'thread' continues an
+            # earlier request, 'topic' is the main agent's conversation for that thread.
+            if (not {'text'} <= set(payload) <= {'text', 'via', 'thread', 'topic'} or not isinstance(payload['text'], str)
+                    or not 1 <= len(payload['text'].strip()) <= 500 or payload.get('via', 'voice') not in ('voice', 'typed')
+                    or any(not isinstance(payload.get(k, 'a' * 32), str) or not re.fullmatch(r'[0-9a-f]{32}', payload.get(k, 'a' * 32)) for k in ('thread', 'topic'))):
+                raise ValueError('voice_command requires text (1..500 chars) and optional via/thread/topic')
         elif action == 'phone_call':
             # A contact name or a choice token from the phone; never a raw number.
             if not (set(payload) == {'name'} and isinstance(payload['name'], str) and 1 <= len(payload['name'].strip()) <= 40

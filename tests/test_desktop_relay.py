@@ -351,7 +351,7 @@ def test_poller_passes_entry_mode_and_reports_progress():
             return {'job': {'id': 'a1', 'action': 'voice_command', 'payload': {'text': '안녕', 'via': 'typed'}, 'expires': 9e9}}
         return {'answers': [{'approval': 'x', 'value': 'deny'}]} if endpoint == '/progress' else {'ok': True}
     seen = {}
-    async def answer(text, via, report):
+    async def answer(text, via, report, topic=None):
         seen['via'] = via
         seen['answers'] = await asyncio.to_thread(report, {'step': '⏳'})
         return {'reply': '네'}
@@ -377,3 +377,101 @@ def test_step_list_is_bounded(tmp_path):
     for i in range(30):
         record(tmp_path, 'web_search' if i % 2 else 'web_fetch', {})
     assert len(current_state(tmp_path)['steps']) == 8
+
+
+# --- conversations (threads) ---------------------------------------------------------------
+
+def finish(r, job_id, reply, topic=None):
+    result = {'reply': reply, 'text': reply}
+    if topic:
+        result['topic'] = topic
+    r.voice_finish(job_id, 'succeeded', result)
+
+
+def test_follow_up_continues_the_same_thread_and_agent_topic(tmp_path):
+    r, pc, agent, now = setup(tmp_path)
+    first = ask(r, pc, '배민 초밥집 찾아줘', 'k1', via='typed')
+    r.voice_jobs()
+    finish(r, first['id'], '세 곳 찾았어요', topic='a' * 32)
+    now[0] += 5
+    follow = r.request(pc['node'], pc['token'], 'voice', 'voice_command', {'text': '두 번째 가게 메뉴 보여줘', 'via': 'typed', 'thread': first['id']}, 'k2', 300)
+    [job] = r.voice_jobs()
+    assert job['payload']['thread'] == first['id'] and r.thread_topic(first['id']) == 'a' * 32
+    forwarded = r.forward_to_agent(job['payload']['text'], 'voice-' + follow['id'], 'typed', 'a' * 32)
+    assert r.poll('agent-main', agent)['payload'] == {'text': '두 번째 가게 메뉴 보여줘', 'via': 'typed', 'topic': 'a' * 32}
+    items = r.history(pc['node'], pc['token'])['items']
+    assert [i['thread'] for i in items] == [first['id'], first['id']]
+
+
+def test_thread_must_be_an_existing_request_id(tmp_path):
+    r, pc, _, _ = setup(tmp_path)
+    for thread in ('nothex', 'f' * 31):
+        with pytest.raises(ValueError):
+            r.request(pc['node'], pc['token'], 'voice', 'voice_command', {'text': '이어서', 'thread': thread}, 'k' + thread[:3], 300)
+    assert r.thread_topic('f' * 32) is None
+
+
+def test_follow_up_to_a_newer_message_stays_in_the_root_thread(tmp_path):
+    r, pc, _, now = setup(tmp_path)
+    first = ask(r, pc, '처음', 'k1')
+    r.voice_jobs()
+    finish(r, first['id'], '응', topic='b' * 32)
+    second = r.request(pc['node'], pc['token'], 'voice', 'voice_command', {'text': '둘째', 'thread': first['id']}, 'k2', 300)
+    r.voice_jobs()
+    finish(r, second['id'], '응2', topic='b' * 32)
+    third = r.request(pc['node'], pc['token'], 'voice', 'voice_command', {'text': '셋째', 'thread': second['id']}, 'k3', 300)
+    r.voice_jobs()
+    assert {i['thread'] for i in r.history(pc['node'], pc['token'])['items']} == {first['id']}
+
+
+def test_history_search_matches_requests_and_answers(tmp_path):
+    r, pc, _, now = setup(tmp_path)
+    for i, (text, reply) in enumerate([('초밥 찾아줘', '스시 세 곳'), ('날씨 알려줘', '맑음'), ('메일 요약', '초밥 쿠폰 메일 1통')]):
+        job = ask(r, pc, text, f'k{i}')
+        r.voice_jobs()
+        finish(r, job['id'], reply)
+        now[0] += 1
+    found = r.history(pc['node'], pc['token'], q='초밥')['items']
+    assert [i['text'] for i in found] == ['메일 요약', '초밥 찾아줘']
+    with pytest.raises(ValueError):
+        r.history(pc['node'], pc['token'], q='x' * 101)
+
+
+def test_registered_phone_can_ask_and_read_history(tmp_path):
+    r, pc, _, _ = setup(tmp_path)
+    phone = r.redeem(r.invite('갤럭시', 'phone'))
+    r.ensure_voice()
+    job = r.request(phone['node'], phone['token'], 'voice', 'voice_command', {'text': '폰에서 질문', 'via': 'typed'}, 'p1', 300)
+    r.voice_jobs()
+    items = r.history(phone['node'], phone['token'])
+    assert items['items'][0]['pc'] == '갤럭시' and items['me'] == '갤럭시'
+    assert r.request_status(phone['node'], phone['token'], job['id'])['status'] == 'dispatched'
+
+
+def test_phone_registered_later_is_granted_voice_without_restart(tmp_path):
+    r, _, _, _ = setup(tmp_path)
+    phone = r.redeem(r.invite('갤럭시', 'phone'))
+    assert r.request(phone['node'], phone['token'], 'voice', 'voice_command', {'text': '안녕'}, 'p1', 300)['status'] == 'queued'
+
+
+def test_calls_go_to_the_phone_that_is_online(tmp_path):
+    r, _, _, now = setup(tmp_path)
+    app = r.redeem(r.invite('갤럭시 앱', 'phone'))
+    termux = r.redeem(r.invite('폰', 'phone'))
+    r.poll(termux['node'], termux['token'])  # Only the Termux phone node polls for call jobs.
+    job = r.phone_call(None, {'name': '엄마'}, 'call-1')
+    assert job['node'] == termux['node']
+
+
+def test_follow_up_turn_continues_the_topic_and_reports_it():
+    from agent import voice_agent
+    seen = []
+    def turn(chat, text, approve):
+        seen.append(text)
+        gateway._last_topic = {'id': 'c' * 32}
+        return '네'
+    gateway = gateway_with(turn)
+    result = asyncio.run(voice_agent.voice_turn(gateway, '이어서', topic='c' * 32))
+    assert seen == ['[[topic:' + 'c' * 32 + ']] 이어서'] and result['topic'] == 'c' * 32
+    asyncio.run(voice_agent.voice_turn(gateway, '새 질문'))
+    assert seen[-1] == '[[topic:new]] 새 질문'

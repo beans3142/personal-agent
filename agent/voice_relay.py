@@ -73,7 +73,9 @@ async def handle_voice_job(bot, job, sleep=asyncio.sleep):
         if not await asyncio.to_thread(registry.agent_online) and await asyncio.to_thread(bot.control.start) != 'already_running':
             extra = {'say': '서버를 켜고 있어요. 1~3분 걸려요.'}
             await asyncio.to_thread(registry.voice_progress, job['id'], extra)
-        forwarded = await asyncio.to_thread(registry.forward_to_agent, text, 'voice-' + job['id'], via)
+        topic = payload.get('thread') and await asyncio.to_thread(registry.thread_topic, payload['thread'])
+        forward = (text, 'voice-' + job['id'], via) + ((topic,) if topic else ())  # A follow-up continues the agent's conversation.
+        forwarded = await asyncio.to_thread(registry.forward_to_agent, *forward)
         shown = None
         for _ in range(WAIT_STEPS):
             state = await asyncio.to_thread(registry.job_result, forwarded['id'])

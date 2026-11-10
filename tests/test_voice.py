@@ -161,7 +161,7 @@ def test_agent_poller_acknowledges_each_job_with_its_reply():
     def post(endpoint, body):
         posts.append((endpoint, body))
         return {'job': {'id': 'a1', 'action': 'voice_command', 'payload': {'text': '안녕'}, 'expires': 9e9}} if endpoint == '/poll' else {'ok': True}
-    async def answer(text, via, report):
+    async def answer(text, via, report, topic=None):
         return {'reply': '네, ' + text}
     asyncio.run(poll_once(post, answer, 'agent-main'))
     assert posts[-1] == ('/ack', {'node': 'agent-main', 'id': 'a1', 'status': 'succeeded', 'result': {'reply': '네, 안녕'}})
