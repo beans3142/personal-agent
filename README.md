@@ -28,6 +28,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | <img src="https://cdn.simpleicons.org/n8n" width="20"> | 정해진 자동화 실행 | `n8n 상태 확인 돌려줘` | 모델은 이름만 고름 | `n8n_list` `n8n_run` |
 | 💻 | 내 PC·폰에 작업 보내기 | `집 PC 켜줘` | 등록한 기기가 가져가 실행 (PC 켜기, 폰 알람, 문자) | `device_*` |
 | ⚡ | 서버 켜기·끄기 | `대비스 온라인` / `대비스 오프라인` | 상시 서버의 전원 봇 | EC2 API |
+| 📱 | Galaxy 앱에서 묻기 | 앱에 적거나 마이크를 누르고 말하기 | PC 앱과 같은 화면, 같은 대화 기록. 폰의 한국어 TTS로 답을 읽음 | `android/` |
 | 🖥️ | PC 앱에서 묻기 | 앱 입력창에 적거나 `대비스, 오늘 일정 알려줘`라고 말하기 | 상시 중계가 받아 본체에 전달하고, 진행 단계·답·기록·결제 승인을 앱에 표시 | `desktop/` |
 
 카톡 전송과 길찾기처럼 문장 형태가 정해진 요청은 모델을 부르지 않는다. 오프라인 측정에서 이 방식과 도구 묶음 고르기를 합쳐 요청 20개 기준 모델 입력 토큰이 80% 줄었다.
@@ -79,7 +80,8 @@ flowchart LR
 | 반복 제한 | `deploy/hermes_policy.py` | 입력 토큰 6만 초과, 같은 오류 3회 반복, 소유자 거절 시 즉시 멈춤 |
 | MCP 서버 | `agent/mcp_server.py` `deploy/run-mcp.sh` | 도구 목록 공개 범위와 승인 판단, 실제 도구 실행 |
 | 전원 봇 | `agent/power_bot.py` `agent/power.py` | 정확한 전원 문구만 받아 EC2를 켜고 끔 |
-| PC 요청 중계 | `agent/pc_control.py` `agent/voice_relay.py` `agent/voice_agent.py` | 등록한 PC의 글·음성 요청을 받아 본체에 넘기고, 진행 단계·결제 답·30일 기록을 PC와 주고받음 |
+| PC·폰 요청 중계 | `agent/pc_control.py` `agent/voice_relay.py` `agent/voice_agent.py` | 등록한 PC와 폰의 글·음성 요청을 받아 본체에 넘기고, 진행 단계·결제 답·30일 대화 기록(검색, 이어 묻기)을 기기들과 주고받음 |
+| Galaxy 앱 | `android/` | 데스크톱과 같은 화면을 WebView로 띄우는 Java 앱. `android/build.py`가 SDK 도구만으로 APK를 만들고, Android build 워크플로가 빌드와 에뮬레이터 실행 확인을 함 |
 | 데스크톱 앱 | `desktop/` | WebView2 화면(진행 단계 타임라인), 호출어 듣기, 답변 목소리 선택. 다른 에이전트용 `Daevis.exe ask --json` 명령줄과 `Daevis.exe mcp` stdio MCP 서버(`ask`·`request_status`·`history`). `desktop-v*` 태그를 올리면 GitHub Actions가 `Daevis.exe`를 Release에 올림 |
 | 로그인 | `agent/authgate.py` `agent/login_portal.py` | 저장된 브라우저 세션을 먼저 확인하고, 세션이 없을 때만 로그인을 시도. 실패하면 멈춘 상태를 기록해 반복하지 않음 |
 | Android | `agent/android_control.py` `agent/kakao_watch.py` | 화면 트리 읽기, 확인 후 한 번만 누르기, 카톡 전송 검증 |
