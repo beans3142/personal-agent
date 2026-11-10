@@ -9,6 +9,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import time
 
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # PyInstaller runs this file as a script.
@@ -64,13 +65,31 @@ class Desktop:
                       on_event=self.events.put).start()
 
     def pump(self):
-        """Forward Python events to the page in order."""
+        """Forward Python events to the page in order, once the page is ready for them."""
+        log = (Path.home() / '.daevis' / 'desktop' / 'app.log').open('a', encoding='utf-8', buffering=1)
+        self.api._ready.wait()
         while True:
             event = self.events.get()
+            if event['kind'] == 'status':
+                self.api._status = event['text']
+                print(time.strftime('%F %T'), 'status:', event['text'], file=log)  # No request text is logged.
             try:
                 self.window.evaluate_js('window.daevis && window.daevis.on(%s)' % json.dumps(event, ensure_ascii=False))
             except Exception:
                 pass
+
+    def watch_show(self):
+        """A second launch (double-click, Start menu) brings this window forward instead of opening another."""
+        flag = Path.home() / '.daevis' / 'desktop' / 'show'
+        while True:
+            time.sleep(1)
+            if flag.exists():
+                flag.unlink(missing_ok=True)
+                try:
+                    self.window.restore()
+                    self.window.show()
+                except Exception:
+                    pass
 
     def run(self, background):
         import webview
@@ -82,6 +101,7 @@ class Desktop:
                                             background_color='#04070c', minimized=background)
         self.api._window = self.window
         threading.Thread(target=self.pump, daemon=True).start()
+        threading.Thread(target=self.watch_show, daemon=True).start()
         webview.start(private_mode=False, storage_path=str(Path.home() / '.daevis' / 'desktop' / 'webview'))
 
 
@@ -96,7 +116,8 @@ def main():
     try:
         msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
     except OSError:
-        return  # Already running.
+        (folder / 'show').touch()  # Already running: ask that window to come forward.
+        return
     Desktop().run(args.background)
 
 

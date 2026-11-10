@@ -19,6 +19,8 @@ class Bridge:
         self._speaker = tts.Speaker()
         self._relay = self._controller = self._window = None
         self._on_register = None
+        self._ready = threading.Event()  # Set once the page can receive events.
+        self._status = ''  # Last listener status, for a page that loads after it was sent.
 
     # --- wiring (Python side only) ----------------------------------------------------
     def _connect(self, client, controller=None):
@@ -36,8 +38,9 @@ class Bridge:
     def boot(self):
         voices = [{'id': v.id, 'name': v.label.split(' (')[0], 'detail': v.label.split(' (')[1].rstrip(')') if ' (' in v.label else '',
                    'online': v.engine == 'edge'} for v in tts.VOICES]
+        self._ready.set()
         return {'registered': self._relay is not None, 'pc': getattr(self._relay, 'label', ''),
-                'settings': dict(self._settings), 'voices': voices}
+                'settings': dict(self._settings), 'voices': voices, 'status': self._status}
 
     def register(self, pasted):
         try:

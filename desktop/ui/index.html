@@ -491,9 +491,12 @@ async function boot() {
     return;
   }
   setLink('ok', 'LINK ONLINE'); $('pcLabel').textContent = 'NODE · ' + (b.pc || 'THIS PC').toUpperCase();
-  setMode('idle', b.settings.listen ? '음성 인식 모델을 불러오는 중…' : undefined);
+  setMode('idle', b.settings.listen ? (b.status || '음성 인식 모델을 불러오는 중…') : undefined);
   renderLive(); loadHistory(); $('input').focus();
 }
+// Typing goes straight to the command line whenever the window is brought forward.
+window.addEventListener('focus', () => { if (!$('drawer').classList.contains('open') && $('linkScreen').classList.contains('hidden')) $('input').focus(); });
+document.querySelector('.main').addEventListener('click', e => { if (!window.getSelection().toString() && !e.target.closest('button')) $('input').focus(); });
 window.addEventListener('pywebviewready', boot);
 </script>
 </body>

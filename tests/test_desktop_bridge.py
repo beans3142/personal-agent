@@ -37,6 +37,7 @@ def test_boot_tells_the_page_about_link_voices_and_settings(tmp_path):
     assert {v['id'] for v in state['voices']} >= {'windows', 'ko-KR-SunHiNeural'}
     assert all(set(v) == {'id', 'name', 'detail', 'online'} for v in state['voices'])
     json.dumps(state)  # Must cross into JavaScript.
+    assert b._ready.is_set() and state['status'] == ''
 
 
 def test_unregistered_boot_and_failed_registration(tmp_path):
