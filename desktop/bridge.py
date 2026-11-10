@@ -37,7 +37,7 @@ class Bridge:
     # --- called from the page ------------------------------------------------------------
     def boot(self):
         voices = [{'id': v.id, 'name': v.label.split(' (')[0], 'detail': v.label.split(' (')[1].rstrip(')') if ' (' in v.label else '',
-                   'online': v.engine == 'edge'} for v in tts.VOICES]
+                   'online': v.engine == 'edge'} for v in tts.all_voices()]
         self._ready.set()
         return {'registered': self._relay is not None, 'pc': getattr(self._relay, 'label', ''),
                 'settings': dict(self._settings), 'voices': voices, 'status': self._status,
@@ -86,7 +86,7 @@ class Bridge:
         default = settings.DEFAULTS.get(key)
         if default is None or type(value) is not type(default):
             return {'ok': False}
-        if key == 'voice' and value not in {v.id for v in tts.VOICES}:
+        if key == 'voice' and value not in {v.id for v in tts.all_voices()}:
             return {'ok': False}
         if key in LIMITS and not LIMITS[key][0] <= value <= LIMITS[key][1]:
             return {'ok': False}

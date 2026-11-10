@@ -1,0 +1,11 @@
+{
+  "label": "아이리",
+  "server": "http://127.0.0.1:9880",
+  "lang": "ko",
+  "emotions": {
+    "neutral": {"ref": "neutral.wav", "text": "neutral.wav에서 실제로 말한 문장을 그대로 적습니다."},
+    "happy":   {"ref": "happy.wav",   "text": "happy.wav에서 실제로 말한 문장"},
+    "sad":     {"ref": "sad.wav",     "text": "sad.wav에서 실제로 말한 문장"},
+    "serious": {"ref": "serious.wav", "text": "serious.wav에서 실제로 말한 문장"}
+  }
+}

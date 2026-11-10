@@ -16,6 +16,12 @@
 - MCP: `claude mcp add daevis -- "%USERPROFILE%\.daevis\app\Daevis.exe" mcp` 처럼 stdio 서버로 붙입니다. 도구는 `ask`(기다리거나 id만 받기), `request_status`, `history` 세 개입니다.
 - 결제 승인은 명령줄과 MCP로는 답할 수 없습니다. 질문만 보이고, 승인은 앱 창이나 Discord에서 소유자가 합니다.
 
+**캐릭터 목소리와 감정** (이 PC에서만)
+1. [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)(MIT, 한국어 지원)를 설치하고 `api_v2.py`를 켭니다(기본 `127.0.0.1:9880`). 1분 정도 음성으로 미세 조정하면 더 비슷해집니다.
+2. `%USERPROFILE%\.daevis\voices\<이름>\` 폴더에 감정별 3~10초 음성(`neutral.wav`, `happy.wav`, `sad.wav`, `serious.wav`)과 `profile.json`을 둡니다. 형식은 저장소의 `desktop/voice-profile.example.json`을 따릅니다. 없는 감정은 `neutral`로 대신합니다.
+3. 앱 설정의 답변 목소리에 그 이름이 나타납니다. 답 내용에 따라 사과·실패는 `sad`, 결제·주의는 `serious`, 완료·좋은 소식은 `happy`, 나머지는 `neutral` 음성을 기준으로 말합니다. 음성 서버가 꺼져 있으면 기본 목소리로 답합니다.
+- 실제 사람(성우 포함)의 목소리를 본인 동의 없이 복제해 공개하지 마세요. 이 기능은 개인 PC 안에서만 쓰도록 만들었습니다.
+
 **알아 둘 것**
 - 음성 인식 모델은 처음 켤 때 내려받습니다(그래픽카드가 있으면 medium 약 1.5GB, 없으면 small 약 0.5GB).
 - 앱이 호출어를 듣기 시작하면 예전 음성 스크립트(`DaevisVoice` 자동 실행)는 꺼집니다. 같은 말을 두 번 듣지 않게 하기 위해서입니다.
