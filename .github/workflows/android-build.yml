@@ -60,6 +60,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
+            sleep 45
             adb install -r daevis.apk
             adb logcat -c
             adb shell am start -W -n io.daevis.app/.MainActivity
