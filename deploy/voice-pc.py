@@ -44,7 +44,7 @@ class Segmenter:
 
     def feed(self, frame):
         level = float(np.sqrt(np.mean(np.square(frame))))
-        loud = level > max(0.012, self.floor * 4)
+        loud = level > max(0.004, self.floor * 4)  # USB mic at desk distance: speech ~0.005-0.03 RMS
         if not self.active:
             self.floor = 0.95 * self.floor + 0.05 * level
             self.pre = (self.pre + [frame])[-5:]

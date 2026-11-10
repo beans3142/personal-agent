@@ -24,6 +24,15 @@ class HermesGateway(Gateway):
             from .pc_control import BASE
             from .voice_agent import agent_loop
             self.loop.create_task(agent_loop(self,BASE,token))
+        self.loop.create_task(self.voice_backlog())
+
+    async def voice_backlog(self):
+        await self.wait_until_ready()
+        from .voice_message import process_backlog
+        try:
+            await process_backlog(self)
+        except Exception:
+            logging.getLogger(__name__).exception('voice backlog failed')
 
     async def heartbeat_loop(self):
         from .heartbeat import HeartbeatTracker

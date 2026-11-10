@@ -1,4 +1,4 @@
-# Installs the Daevis PC voice assistant for the current Windows user.
+﻿# Installs the Daevis PC voice assistant for the current Windows user.
 # Run in PowerShell from the repository root:  .\deploy\install-voice.ps1
 # Remove:  .\deploy\install-voice.ps1 -Uninstall
 param([switch]$Uninstall)

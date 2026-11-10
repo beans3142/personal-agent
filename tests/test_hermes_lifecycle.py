@@ -17,13 +17,15 @@ def test_hermes_setup_starts_scheduler_heartbeat_and_inherited_idle_task():
         pass
     async def idle_shutdown_loop():
         pass
+    async def voice_backlog():
+        pass
     fake = SimpleNamespace(loop=SimpleNamespace(create_task=captured.append),
                            schedule_loop=schedule_loop, heartbeat_loop=heartbeat_loop,
-                           idle_shutdown_loop=idle_shutdown_loop)
+                           idle_shutdown_loop=idle_shutdown_loop, voice_backlog=voice_backlog)
     try:
         asyncio.run(HermesGateway.setup_hook(fake))
         assert [c.cr_code.co_name for c in captured] == [
-            "schedule_loop", "heartbeat_loop", "idle_shutdown_loop"]
+            "schedule_loop", "heartbeat_loop", "idle_shutdown_loop", "voice_backlog"]
         assert HermesGateway.idle_shutdown_loop is Gateway.idle_shutdown_loop
     finally:
         for coroutine in captured:

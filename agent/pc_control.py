@@ -161,6 +161,9 @@ class PCRegistry(DeviceStore):
                            (hashlib.sha256(secrets.token_bytes(32)).hexdigest(),json.dumps(['voice_command'])))
             for row in db.execute('SELECT node FROM pcs').fetchall():
                 db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(row['node'],))
+            if db.execute("SELECT 1 FROM nodes WHERE name='agent-main'").fetchone():
+                # Spoken PC/phone/power commands from Discord voice messages come back through the agent.
+                db.execute("INSERT OR IGNORE INTO controls VALUES('agent-main','voice','voice_command')")
 
     def voice_jobs(self):
         with self._db() as db:

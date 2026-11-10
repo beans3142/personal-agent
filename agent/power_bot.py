@@ -60,6 +60,16 @@ class PowerBot(discord.Client):
         if message.author.id != self.owner_id or message.author.bot:
             return
         text = message.content.strip()
+        if not text and message.guild is None and getattr(self,'pc_registry',None):
+            from .voice_message import voice_attachment
+            if voice_attachment(message) and not await asyncio.to_thread(self.pc_registry.agent_online):
+                # The main agent transcribes voice messages; wake it and let it pick this one up.
+                result=await asyncio.to_thread(self.control.start)
+                if result in ('started','already_running'):
+                    await message.channel.send('서버를 켜고 있어요. 1~3분 뒤 이 음성 메시지를 처리할게요.')
+                else:
+                    await message.channel.send(f'서버를 켜지 못했어요({result}). 잠시 뒤 다시 보내 주세요.')
+            return
         if message.guild is not None:
             if self.user is None or not re.search(rf"<@!?{self.user.id}>", text):
                 return

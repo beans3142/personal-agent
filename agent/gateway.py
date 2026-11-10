@@ -375,10 +375,24 @@ class Gateway(discord.Client):
             text = re.sub(mention, "", text).strip()
             if not text:
                 return
+        spoken = False
+        if not text and message.guild is None:
+            # Voice message from the owner's phone: transcribe, then treat as typed text.
+            from .voice_message import transcribe_message
+            heard = await transcribe_message(self, message)
+            if not heard:
+                return
+            text, spoken = heard, True
         if not text:
             return
         from .pc_wake import pc_power_command
         from .pc_control import parse_pc_command, parse_phone_command
+        if spoken and (power_command(text) or pc_power_command(text) or parse_pc_command(text) or parse_phone_command(text)):
+            # The power bot owns these commands but never hears audio; hand it the transcript.
+            await asyncio.to_thread(self.relay_voice, text, 'dm-' + str(message.id))
+            return
+        if spoken:
+            await channel.send('🎤 ' + text, allowed_mentions=discord.AllowedMentions.none())
         if power_command(text) or pc_power_command(text) or parse_pc_command(text) or parse_phone_command(text) or text in ('브리핑 설정','보고서 설정','브리핑 웹 설정'):
             sessions=getattr(self,'conversations',None)
             if sessions and (power_command(text) or pc_power_command(text) or parse_pc_command(text)):
@@ -481,6 +495,15 @@ class Gateway(discord.Client):
             await message.add_reaction(status)
         except discord.HTTPException:
             pass
+
+    def relay_voice(self, text: str, key: str) -> None:
+        from .pc_control import BASE
+        from .voice_agent import relay_post
+        token = os.environ.get('DAEVIS_AGENT_NODE_TOKEN')
+        if not token:
+            raise RuntimeError('agent relay token missing')
+        relay_post(BASE, token)('/request', {'node': 'agent-main', 'target': 'voice', 'action': 'voice_command',
+                                             'payload': {'text': text}, 'request_key': key, 'ttl_seconds': 300})
 
     async def send_outbox(self, channel, screen: bool = False) -> None:
         outbox = current_outbox(DATA / "outbox")
