@@ -182,7 +182,10 @@ def client():
     ("대비스.", ""),
     ("자비스 PC 꺼줘", "PC 꺼줘"),
     ("오늘 대비스 얘기를 했어", None),
-    ("다비스 안녕", "안녕"),
+    ("다비스 안녕", None),
+    ("재비스 안녕", None),
+    ("데비스 안녕", "안녕"),
+    ("데이비스 지금 몇 시냐?", "지금 몇 시냐?"),
 ])
 def test_wake_word_must_start_the_utterance(heard, expected):
     assert client().after_wake(heard) == expected
@@ -222,3 +225,25 @@ def test_prompt_echo_from_noise_is_ignored_but_real_requests_pass():
 
 def test_bare_wake_word_is_not_treated_as_prompt_echo():
     assert not client().echoes_prompt('대비스')
+
+
+def test_wake_word_must_come_from_the_unhinted_pass():
+    voice = client()
+    assert voice.choose_command('내 배에 딱', '대비스 내 배에 딱') is None
+    assert voice.choose_command('대비스 엄마한테 카톡 보내줘', '대비스, 엄마한테 카톡 보내줘') == '엄마한테 카톡 보내줘'
+    assert voice.choose_command('대비스 내 데스크톱 거죠', '대비스, 내 데스크톱 꺼줘') == '내 데스크톱 꺼줘'
+
+
+@pytest.mark.parametrize("command,ok", [("사고", False), ("켜줘", False), ("PC 꺼줘", True), ("엄마한테 전화", True), ("", False)])
+def test_too_short_commands_are_ignored(command, ok):
+    assert client().usable(command) is ok
+
+
+def test_command_hint_no_longer_contains_the_wake_word():
+    assert '대비스' not in client().PROMPT
+
+
+def test_hint_words_alone_are_treated_as_echo():
+    voice = client()
+    assert voice.echoes_prompt('카톡 보내줘, 켜줘') and voice.echoes_prompt('대비스, 카톡 보내줘, 켜줘')
+    assert not voice.echoes_prompt('대비스, 엄마에게 카톡 보내줘')

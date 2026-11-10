@@ -23,7 +23,8 @@ import uuid
 import numpy as np
 
 RATE, FRAME = 16000, 480  # 30 ms frames
-WAKE = re.compile(r'^\s*[대데다재자]\s*비\s*[스수쓰]\s*[,.!?~]*\s*(.*)$')
+# Only the wake word itself (and the Jarvis form): looser spellings matched ordinary speech.
+WAKE = re.compile(r'^\s*(?:[대데]\s*이?\s*비\s*[스수]|자\s*비\s*스)\s*[,.!?~]*\s*(.*)$')  # Unhinted Whisper writes 데이비스.
 SAY_SCRIPT = ("Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
               "try { $s.SelectVoice('Microsoft Heami Desktop') } catch {}; $s.Speak($env:DAEVIS_SAY)")
 
@@ -133,23 +134,48 @@ def load_model(name):
         return WhisperModel('small', device='cpu', compute_type='int8')
 
 
-PROMPT = '대비스, 카톡 보내줘, 전화 걸어줘, PC 꺼줘, 켜줘'
+# Vocabulary hint for the command only. It must not contain the wake word: a hint
+# that starts with "대비스" made Whisper add the wake word to ordinary speech.
+PROMPT = '카톡 보내줘, 전화 걸어줘, PC 꺼줘, 켜줘'
+MIN_COMMAND = 3  # Characters without spaces; "사고" or "켜줘" alone are not requests.
 
 
-def transcribe(model, audio):
+def transcribe(model, audio, prompt=PROMPT):
     segments, _ = model.transcribe(audio, language='ko', beam_size=1, vad_filter=False,
-                                   initial_prompt=PROMPT, condition_on_previous_text=False)
+                                   initial_prompt=prompt, condition_on_previous_text=False)
     # Drop segments Whisper itself rates as non-speech or low confidence.
     text = ' '.join(s.text.strip() for s in segments if s.no_speech_prob < 0.6 and s.avg_logprob > -1.0).strip()
     return '' if echoes_prompt(text) else text
 
 
+def choose_command(plain, hinted):
+    """Wake word from the unhinted pass decides; the hinted pass only improves the wording."""
+    command = after_wake(plain)
+    if command is None:
+        return None
+    better = after_wake(hinted)
+    return better if better is not None else command
+
+
+def usable(command):
+    return len(re.sub(r'[\s,.!?~]', '', command or '')) >= MIN_COMMAND
+
+
+def wake_command(model, audio):
+    plain = transcribe(model, audio, prompt=None)
+    if after_wake(plain) is None:
+        return None
+    return choose_command(plain, transcribe(model, audio))
+
+
 def echoes_prompt(text):
     """Whisper can hallucinate its own prompt on noise; never act on that."""
-    squash = lambda s: re.sub(r'[\s,.!?]', '', s)
-    heard = squash(text)
-    # The bare wake word only triggers a beep and a second listen, so it may pass.
-    return bool(heard) and heard in squash(PROMPT) and after_wake(text) != ''
+    command = after_wake(text)
+    if command == '':
+        return False  # The bare wake word only triggers a beep and a second listen.
+    words = re.findall(r'[가-힣A-Za-z]+', text if command is None else command)
+    # Made only of hint words ("카톡 보내줘, 켜줘"): Whisper repeating its hint.
+    return bool(words) and set(words) <= set(re.findall(r'[가-힣A-Za-z]+', PROMPT))
 
 
 def default_config():
@@ -190,7 +216,7 @@ def main():
             utterance = segmenter.feed(frames.get())
             if utterance is None:
                 continue
-            command = after_wake(transcribe(model, utterance))
+            command = wake_command(model, utterance)
             if command is None:
                 continue  # Not addressed to Daevis; nothing is logged or sent.
             beep()
@@ -203,7 +229,8 @@ def main():
                         continue
                     if chunk is not None:
                         command = transcribe(model, chunk)
-            if not command:
+            if not usable(command):
+                print(time.strftime('%F %T'), 'ignored: too short', file=log)
                 continue
             print(time.strftime('%F %T'), 'request sent', file=log)
             try:
