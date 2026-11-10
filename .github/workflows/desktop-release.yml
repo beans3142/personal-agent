@@ -32,7 +32,7 @@ jobs:
         run: |
           test -s dist/Daevis.exe
           ls -la dist/Daevis.exe
-          sha256sum dist/Daevis.exe | tee dist/Daevis.exe.sha256
+          (cd dist && sha256sum Daevis.exe | tee Daevis.exe.sha256)
 
       - name: Publish
         shell: bash
