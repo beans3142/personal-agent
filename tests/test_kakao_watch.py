@@ -349,3 +349,22 @@ def test_name_without_spaces_is_not_retried(tmp_path):
     with pytest.raises(KakaoRecipientUnavailable):
         watch.send_once('없는사람', 'hi')
     assert searched == ['없는사람']
+
+
+def test_names_differing_only_by_spaces_count_as_exact_candidates(tmp_path):
+    from agent.kakao_watch import same_name
+    assert same_name('반수의신', '반수의 신') and same_name('김 철수', '김철수')
+    assert not same_name('반수의신', '반수의 신2')
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    watch.targets.remember('반수의신', '반수의신', 'individual', None)
+    result = watch.find_candidates('반수의신')
+    assert result['candidates'][0]['exact']
+
+
+def test_exact_candidates_are_not_announced_as_needing_confirmation(tmp_path, monkeypatch):
+    from agent.kakao_watch import build_kakao_send_tools, KakaoWatcher as W
+    notices = []
+    monkeypatch.setattr(W, 'find_candidates', lambda self, q: {'status': 'candidates_only', 'candidates': [{'name': '반수의신', 'exact': True}]})
+    find = build_kakao_send_tools(None, tmp_path, notify_candidates=notices.append)[1]
+    find.run({'query': '반수의 신'})
+    assert notices == []

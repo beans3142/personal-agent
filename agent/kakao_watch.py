@@ -24,6 +24,12 @@ class KakaoRecipientUnavailable(ValueError):
     """No draft/send was attempted; read-only recipient lookup may follow."""
 
 
+def same_name(name, query):
+    """Identical apart from spaces and Unicode form: "반수의 신" is "반수의신"."""
+    squash = lambda value: ''.join(unicodedata.normalize('NFC', value).split())
+    return squash(name) == squash(query)
+
+
 class KakaoSendBlocked(ValueError):
     """An earlier send never confirmed; the owner must check it before new sends."""
 
@@ -309,7 +315,7 @@ class KakaoWatcher:
             raise ValueError('lookup query must contain 1..30 characters')
         cached = [e for kind in ('individual', 'group') if (e := self.targets.get(query, kind))]
         if cached:
-            return {'status': 'cached_hints', 'candidates': [{'name': e['title'], 'exact': e['title'] == query,
+            return {'status': 'cached_hints', 'candidates': [{'name': e['title'], 'exact': same_name(e['title'], query),
                     'room_type': e['kind'], 'members': e['members'], 'uses': e['hits']} for e in cached],
                     'requires_live_verification': True}
         normalize = lambda value: ''.join(unicodedata.normalize('NFC', value).split()).casefold()
@@ -331,7 +337,7 @@ class KakaoWatcher:
                 if any(n is not row and n['text'] == name and x1 <= n['bounds'][0] <= n['bounds'][2] <= x2 and y1 <= n['bounds'][1] <= n['bounds'][3] <= y2 for n in nodes):
                     candidates.add(name)
         ranked = sorted(candidates, key=lambda name: (-SequenceMatcher(None, normalized, normalize(name)).ratio(), name))
-        return {'status': 'candidates_only', 'candidates': [{'name': name, 'exact': name == query} for name in ranked[:3]],
+        return {'status': 'candidates_only', 'candidates': [{'name': name, 'exact': same_name(name, query)} for name in ranked[:3]],
                 'limitations': 'Names only. No participant membership or latest-room proof. Do not send to an approximate match without owner confirmation.'}
 
     def send_once(self, recipient: str, text: str, *, request_id=None, room_type='individual', mention=None):
@@ -477,10 +483,10 @@ def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candida
         return 'KAKAO_SENT'
     def find(args):
         result = watcher.find_candidates(args['query'])
-        if notify_candidates and result['candidates']:
+        if notify_candidates and result['candidates'] and not any(c['exact'] for c in result['candidates']):
             notify_candidates('카톡 수신자 후보입니다. 아직 전송하지 않았습니다. 정확한 이름으로 다시 요청해 주세요.\n' + '\n'.join(f"{i+1}. {c['name']}" for i, c in enumerate(result['candidates'])))
         return json.dumps(result, ensure_ascii=False)
     return [Tool('kakao_send', 'Search exact individual/group room, verify native title/count, send once and verify outgoing bubble. For group use room_type=group; optional mention selects the actual Kakao member picker and preserves native mention. Never substitute literal @text. Status only.',
         {'type': 'object', 'properties': {'recipient': {'type': 'string', 'minLength': 1, 'maxLength': 30}, 'text': {'type': 'string', 'minLength': 1, 'maxLength': 2000}, 'room_type': {'type': 'string', 'enum': ['individual', 'group']}, 'mention': {'type': 'string', 'minLength': 1, 'maxLength': 40}}, 'required': ['recipient', 'text'], 'additionalProperties': False}, send, needs_approval=True),
-        Tool('kakao_find_recipient', 'Read-only native search for exact names or typo candidates. Returns at most 3 names, never sends. Does NOT prove membership or most-recent-room selection. Approximate matches require owner confirmation.',
+        Tool('kakao_find_recipient', 'Read-only native search for exact names or typo candidates. Returns at most 3 names, never sends. Does NOT prove membership or most-recent-room selection. Approximate matches require owner confirmation; a candidate with exact=true (same name ignoring spaces) may be sent to under that exact name.',
         {'type': 'object', 'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 30}}, 'required': ['query'], 'additionalProperties': False}, find)]
