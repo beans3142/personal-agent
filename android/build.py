@@ -5,8 +5,9 @@
 
 Needs ANDROID_HOME (platforms;android-35 and build-tools) and a JDK 17+. The page is the
 desktop app's desktop/ui/index.html, copied into assets so both apps show the same screen.
-Signing key: DAEVIS_KEYSTORE / DAEVIS_KEY_PASS if set, otherwise a key made once in
-~/.daevis-android/release.jks (keep it: Android only installs updates signed with the same key).
+Signing key: DAEVIS_KEYSTORE / DAEVIS_KEY_PASS if set (CI reads them from the repository secrets
+DAEVIS_ANDROID_KEYSTORE_B64 / DAEVIS_ANDROID_KEY_PASS), otherwise a local key made once in
+~/.daevis-android/release.jks. Android only installs an update signed with the same key.
 """
 import argparse
 import glob

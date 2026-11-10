@@ -21,13 +21,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # One signing key across builds, so Android accepts each new APK as an update.
-      - uses: actions/cache@v4
-        with:
-          path: ~/.daevis-android
-          key: daevis-android-signing-v1
+      # The same signing key for every build (repository secrets), so Android installs each APK as an update.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.DAEVIS_ANDROID_KEYSTORE_B64 }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo 'DAEVIS_ANDROID_KEYSTORE_B64 secret is missing'; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
       - name: Test and build
+        env:
+          DAEVIS_KEYSTORE: ${{ runner.temp }}/release.jks
+          DAEVIS_KEY_PASS: ${{ secrets.DAEVIS_ANDROID_KEY_PASS }}
         run: python3 android/build.py --out build/android --version-code ${{ github.run_number }} --version-name 0.1.${{ github.run_number }}
 
       - uses: actions/upload-artifact@v4
