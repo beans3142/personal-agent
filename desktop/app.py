@@ -1,0 +1,104 @@
+"""Daevis desktop: a HUD window for typed and spoken ("대비스, ...") requests.
+
+Run from the repository: python -m desktop.app   (the release exe runs the same code)
+The page is desktop/ui/index.html shown in WebView2; desktop/bridge.py is its only API.
+"""
+import argparse
+import json
+from pathlib import Path
+import queue
+import sys
+import threading
+
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # PyInstaller runs this file as a script.
+
+from desktop import bridge, core, relay
+
+
+def page():
+    base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    return base / 'ui' / 'index.html' if (base / 'ui').exists() else base / 'desktop' / 'ui' / 'index.html'
+
+
+class Desktop:
+    def __init__(self):
+        self.events = queue.Queue()
+        self.api = bridge.Bridge(emit=self.events.put, autostart=self.autostart)
+        self.api._on_register = self.start
+        self.window = None
+
+    @staticmethod
+    def autostart(enabled):
+        if getattr(sys, 'frozen', False):
+            core.set_autostart(enabled)
+
+    def start(self, config_path):
+        config = json.loads(Path(config_path).read_text(encoding='utf-8-sig'))
+        client = relay.Relay(config)
+        speaker = self.api
+
+        class Voice:  # Controller speaks through the bridge so the HUD shows the speaking state.
+            def speak(self, text, voice, rate):
+                speaker._say(text, voice, rate)
+        controller = core.Controller(client, Voice(), self.api._settings, self.events.put)
+        self.api._connect(client, controller)
+        threading.Thread(target=self.background, args=(config_path, controller), daemon=True).start()
+
+    def background(self, config_path, controller):
+        try:
+            core.retire_legacy_voice()
+        except Exception:
+            pass
+        try:
+            core.start_power_receiver(config_path)
+        except Exception:
+            self.events.put({'kind': 'status', 'text': 'PC 전원 수신기를 시작하지 못했어요', 'level': 'warn'})
+        try:
+            self.autostart(self.api._settings['autostart'])
+        except OSError:
+            pass
+        core.Listener(lambda text: controller.request(text, 'voice'),
+                      lambda text: self.events.put({'kind': 'status', 'text': text}),
+                      lambda: self.api._settings['listen'],
+                      on_event=self.events.put).start()
+
+    def pump(self):
+        """Forward Python events to the page in order."""
+        while True:
+            event = self.events.get()
+            try:
+                self.window.evaluate_js('window.daevis && window.daevis.on(%s)' % json.dumps(event, ensure_ascii=False))
+            except Exception:
+                pass
+
+    def run(self, background):
+        import webview
+        config = relay.find_config()
+        if config:
+            self.start(config)
+        self.window = webview.create_window('대비스', str(page()), js_api=self.api, width=1180, height=760,
+                                            min_size=(940, 620), frameless=True, easy_drag=False,
+                                            background_color='#04070c', minimized=background)
+        self.api._window = self.window
+        threading.Thread(target=self.pump, daemon=True).start()
+        webview.start(private_mode=False, storage_path=str(Path.home() / '.daevis' / 'desktop' / 'webview'))
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Daevis desktop')
+    parser.add_argument('--background', action='store_true', help='Start minimised (used at Windows login)')
+    args = parser.parse_args()
+    folder = Path.home() / '.daevis' / 'desktop'
+    folder.mkdir(parents=True, exist_ok=True)
+    import msvcrt
+    lock = (folder / 'app.lock').open('a+b')
+    try:
+        msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        return  # Already running.
+    Desktop().run(args.background)
+
+
+if __name__ == '__main__':
+    main()

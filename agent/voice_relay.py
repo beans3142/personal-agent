@@ -18,7 +18,7 @@ from .power import power_command
 from .speech import spoken
 
 log = logging.getLogger(__name__)
-WAIT_STEPS, WAIT_SECONDS = 140, 2  # Up to ~280 s: boot (1-3 min) plus the answer.
+WAIT_STEPS, WAIT_SECONDS = 280, 1  # Up to ~280 s: boot (1-3 min) plus the answer.
 
 
 class Recorder:
@@ -56,20 +56,25 @@ async def _run_rule(bot, recorder, message, text):
 
 
 async def handle_voice_job(bot, job, sleep=asyncio.sleep):
-    registry, text = bot.pc_registry, job['payload']['text'].strip()
+    registry, payload = bot.pc_registry, job['payload']
+    text, via = payload['text'].strip(), payload.get('via', 'voice')
     dm = await (await bot.fetch_user(bot.owner_id)).create_dm()
-    await dm.send('🎤 ' + text, allowed_mentions=discord.AllowedMentions.none())
+    await dm.send(('⌨️ ' if via == 'typed' else '🎤 ') + text, allowed_mentions=discord.AllowedMentions.none())
     recorder = Recorder(dm)
     message = SimpleNamespace(id=zlib.crc32(job['id'].encode()), channel=recorder, guild=None)
     try:
         if await _run_rule(bot, recorder, message, text):
             reply = spoken(recorder.texts[-1]) if recorder.texts else '처리했어요.'
-            await asyncio.to_thread(registry.voice_finish, job['id'], 'succeeded', {'reply': reply})
+            result = {'reply': reply, 'text': '\n'.join(recorder.texts)[:1500]} if recorder.texts else {'reply': reply}
+            await asyncio.to_thread(registry.voice_finish, job['id'], 'succeeded', result)
             return
-        if not await asyncio.to_thread(registry.agent_online):
-            await asyncio.to_thread(registry.voice_progress, job['id'], {'say': '서버를 켜고 있어요. 1~3분 걸려요.'})
-            await asyncio.to_thread(bot.control.start)
-        forwarded = await asyncio.to_thread(registry.forward_to_agent, text, 'voice-' + job['id'])
+        extra = {}
+        # A busy agent stops polling while it answers; only a real boot is announced.
+        if not await asyncio.to_thread(registry.agent_online) and await asyncio.to_thread(bot.control.start) != 'already_running':
+            extra = {'say': '서버를 켜고 있어요. 1~3분 걸려요.'}
+            await asyncio.to_thread(registry.voice_progress, job['id'], extra)
+        forwarded = await asyncio.to_thread(registry.forward_to_agent, text, 'voice-' + job['id'], via)
+        shown = None
         for _ in range(WAIT_STEPS):
             state = await asyncio.to_thread(registry.job_result, forwarded['id'])
             if state['status'] == 'succeeded':
@@ -77,6 +82,11 @@ async def handle_voice_job(bot, job, sleep=asyncio.sleep):
                 return
             if state['status'] not in ('queued', 'dispatched'):
                 break
+            # The agent's current step and any payment question, copied to the PC's receipt.
+            progress = state.get('result')
+            if progress and progress != shown:
+                shown = progress
+                await asyncio.to_thread(registry.voice_progress, job['id'], {**extra, **progress})
             await sleep(WAIT_SECONDS)
         await asyncio.to_thread(registry.voice_finish, job['id'], 'failed', {'reply': '본체 서버에서 답을 받지 못했어요. Discord에서 다시 요청해 주세요.'})
     except Exception:

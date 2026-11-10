@@ -25,7 +25,7 @@ def test_pc_may_send_only_voice_text_to_the_voice_relay(tmp_path):
     r, pc = registry(tmp_path)
     job = r.request(pc['node'], pc['token'], 'voice', 'voice_command', {'text': '오늘 날씨 어때'}, 'v1', 300)
     assert job['status'] == 'queued'
-    for action, payload in [('pc_shutdown', {}), ('voice_command', {'text': ''}), ('voice_command', {'text': 'a' * 301}),
+    for action, payload in [('pc_shutdown', {}), ('voice_command', {'text': ''}), ('voice_command', {'text': 'a' * 501}),
                             ('voice_command', {'text': 'x', 'extra': 1})]:
         with pytest.raises((ValueError, PermissionError)):
             r.request(pc['node'], pc['token'], 'voice', action, payload, 'v-' + action + str(len(payload)), 300)
@@ -74,7 +74,7 @@ class FakeRegistry:
     def voice_finish(self, job_id, status, result): self.finished.append((job_id, status, result))
     def voice_progress(self, job_id, result): self.progress.append(result)
     def agent_online(self): return self.online
-    def forward_to_agent(self, text, key): self.forwarded.append(text); return {'id': 'a1'}
+    def forward_to_agent(self, text, key, via='voice'): self.forwarded.append(text); return {'id': 'a1'}
     def job_result(self, job_id): return self.agent_results.pop(0) if self.agent_results else {'status': 'dispatched', 'result': None}
 
 
@@ -150,7 +150,7 @@ def test_voice_turn_answers_in_the_owner_dm_and_returns_speech():
                               turn=lambda chat, text, approve: '**좋아요**\n\n-# 처리 1초', approver=lambda channel: None,
                               send_long=AsyncMock(), send_outbox=AsyncMock(), watch_approvals=AsyncMock())
     result = asyncio.run(voice_turn(gateway, '안녕'))
-    assert result == {'reply': '좋아요'}
+    assert result == {'reply': '좋아요', 'text': '**좋아요**\n\n-# 처리 1초'}
     sent = gateway.send_long.await_args.args[1]
     assert sent.startswith('🎤 안녕') and '좋아요' in sent
 
@@ -161,7 +161,7 @@ def test_agent_poller_acknowledges_each_job_with_its_reply():
     def post(endpoint, body):
         posts.append((endpoint, body))
         return {'job': {'id': 'a1', 'action': 'voice_command', 'payload': {'text': '안녕'}, 'expires': 9e9}} if endpoint == '/poll' else {'ok': True}
-    async def answer(text):
+    async def answer(text, via, report):
         return {'reply': '네, ' + text}
     asyncio.run(poll_once(post, answer, 'agent-main'))
     assert posts[-1] == ('/ack', {'node': 'agent-main', 'id': 'a1', 'status': 'succeeded', 'result': {'reply': '네, 안녕'}})

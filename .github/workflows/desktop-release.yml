@@ -1,0 +1,44 @@
+name: Desktop release
+
+# Push a tag like desktop-v0.1.0 to build Daevis.exe and attach it to a GitHub Release.
+on:
+  push:
+    tags: ['desktop-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install
+        run: python -m pip install -r requirements.txt -r desktop/requirements.txt pytest
+
+      - name: Test
+        run: python -m pytest tests/test_desktop_app.py tests/test_desktop_bridge.py tests/test_desktop_relay.py tests/test_voice.py -q
+
+      - name: Build
+        run: python desktop/build.py --dist dist
+
+      - name: Check the exe starts its bundled page
+        shell: bash
+        run: |
+          test -s dist/Daevis.exe
+          ls -la dist/Daevis.exe
+          sha256sum dist/Daevis.exe | tee dist/Daevis.exe.sha256
+
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/Daevis.exe dist/Daevis.exe.sha256 \
+            --title "Daevis desktop ${GITHUB_REF_NAME#desktop-}" --notes-file desktop/RELEASE.md --prerelease \
+          || gh release upload "$GITHUB_REF_NAME" dist/Daevis.exe dist/Daevis.exe.sha256 --clobber

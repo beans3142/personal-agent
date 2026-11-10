@@ -53,6 +53,9 @@ class PCRegistry(DeviceStore):
                 CREATE TABLE IF NOT EXISTS pc_shutdowns(job TEXT PRIMARY KEY,accepted REAL,cancel_id TEXT);
                 CREATE TABLE IF NOT EXISTS pc_displays(job TEXT PRIMARY KEY,channel TEXT,message TEXT,finished INTEGER DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS phones(alias TEXT PRIMARY KEY,label TEXT,node TEXT UNIQUE);
+                CREATE TABLE IF NOT EXISTS voice_history(job TEXT PRIMARY KEY,node TEXT,via TEXT,text TEXT,reply TEXT,status TEXT,created REAL,finished REAL);
+                CREATE INDEX IF NOT EXISTS voice_history_created ON voice_history(created);
+                CREATE TABLE IF NOT EXISTS approval_answers(job TEXT,approval TEXT,value TEXT,PRIMARY KEY(job,approval));
             ''')
             if 'kind' not in {r['name'] for r in db.execute('PRAGMA table_info(pc_invites)')}:
                 db.execute("ALTER TABLE pc_invites ADD COLUMN kind TEXT DEFAULT 'pc'")
@@ -169,7 +172,13 @@ class PCRegistry(DeviceStore):
         with self._db() as db:
             db.execute('BEGIN IMMEDIATE');self._expire(db)
             rows=db.execute("SELECT * FROM jobs WHERE node='voice' AND status='queued' ORDER BY created,rowid").fetchall()
-            for row in rows:db.execute("UPDATE jobs SET status='dispatched' WHERE id=?",(row['id'],))
+            pcs={r['node'] for r in db.execute('SELECT node FROM pcs')}
+            for row in rows:
+                db.execute("UPDATE jobs SET status='dispatched' WHERE id=?",(row['id'],))
+                if row['issuer'] in pcs:
+                    payload=json.loads(row['payload'])
+                    db.execute("INSERT OR IGNORE INTO voice_history(job,node,via,text,status,created) VALUES(?,?,?,?,'running',?)",
+                               (row['id'],row['issuer'],payload.get('via','voice'),payload['text'],row['created']))
         return [{'id':r['id'],'source':r['issuer'],'payload':json.loads(r['payload'])} for r in rows]
 
     def voice_progress(self,job_id,result):
@@ -180,6 +189,69 @@ class PCRegistry(DeviceStore):
         if status not in ('succeeded','failed'):raise ValueError('invalid voice status')
         with self._db() as db:
             db.execute("UPDATE jobs SET status=?,result=? WHERE id=? AND node='voice'",(status,json.dumps(result,ensure_ascii=False),job_id))
+            db.execute('UPDATE voice_history SET status=?,reply=?,finished=? WHERE job=?',
+                       (status,str(result.get('text') or result.get('reply') or ''),self.clock(),job_id))
+            self._prune_voice(db)
+
+    def _prune_voice(self,db):
+        # Finished relay jobs only keep the shared job table under its 1000-row cap;
+        # the request history lives in voice_history for 30 days.
+        now=self.clock()
+        old=[r['id'] for r in db.execute("SELECT id FROM jobs WHERE node IN ('voice','agent-main') AND action='voice_command' AND status NOT IN ('queued','dispatched') AND created<?",(now-86400,))]
+        for job_id in old:
+            db.execute('DELETE FROM jobs WHERE id=?',(job_id,));db.execute('DELETE FROM approval_answers WHERE job=?',(job_id,))
+        db.execute('DELETE FROM voice_history WHERE created<?',(now-30*86400,))
+
+    def _pc_auth(self,node,token):
+        self._auth(node,token)
+        with self._db() as db:
+            if not db.execute('SELECT 1 FROM pcs WHERE node=?',(node,)).fetchone():raise PermissionError('registered PCs only')
+
+    def history(self,node,token,before=None,limit=20):
+        """Owner's requests from any registered PC, newest first, paged by created time."""
+        self._pc_auth(node,token)
+        if type(limit) is not int or not 1<=limit<=50:raise ValueError('limit must be 1..50')
+        if before is not None and (type(before) not in (int,float) or before!=before):raise ValueError('invalid cursor')
+        with self._db() as db:
+            self._expire(db)
+            rows=db.execute('''SELECT h.*,p.label,j.status AS live FROM voice_history h LEFT JOIN pcs p ON p.node=h.node
+                               LEFT JOIN jobs j ON j.id=h.job WHERE h.created<? ORDER BY h.created DESC,h.rowid DESC LIMIT ?''',
+                            (9e18 if before is None else before,limit+1)).fetchall()
+        items=[]
+        for r in rows[:limit]:
+            status=r['status']
+            if status=='running' and r['live'] not in ('queued','dispatched'):status=r['live'] or 'unknown'
+            items.append({'id':r['job'],'pc':r['label'] or '등록 해제된 PC','via':r['via'],'text':r['text'],
+                          'reply':r['reply'] or '','status':status,'created':r['created'],'finished':r['finished']})
+        with self._db() as db:me=db.execute('SELECT label FROM pcs WHERE node=?',(node,)).fetchone()
+        return {'items':items,'more':len(rows)>limit,'me':me['label'] if me else ''}
+
+    def agent_progress(self,token,job_id,result):
+        """The main agent's current step for a forwarded request; returns owner answers waiting for it."""
+        self._auth('agent-main',token)
+        encoded=json.dumps(result,ensure_ascii=False)
+        if not isinstance(result,dict) or len(encoded)>2048:raise ValueError('invalid progress')
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute("UPDATE jobs SET result=? WHERE id=? AND node='agent-main' AND status='dispatched'",(encoded,job_id)).rowcount:
+                raise ValueError('job is not running')
+            answers=[{'approval':r['approval'],'value':r['value']} for r in db.execute('SELECT approval,value FROM approval_answers WHERE job=? ORDER BY rowid',(job_id,))]
+            db.execute('DELETE FROM approval_answers WHERE job=?',(job_id,))
+        return {'answers':answers}
+
+    def approve(self,node,token,voice_id,approval,value):
+        """Payment answer from the PC that made the request; the agent picks it up on its next progress report."""
+        self._pc_auth(node,token)
+        with self._db() as db:
+            if not db.execute("SELECT 1 FROM jobs WHERE id=? AND node='voice' AND issuer=?",(voice_id,node)).fetchone():
+                raise PermissionError('not a request from this PC')
+        if value not in ('allow','deny') or not isinstance(approval,str) or not re.fullmatch(r'[0-9a-f]{16}',approval):
+            raise ValueError('invalid approval answer')
+        with self._db() as db:
+            forwarded=db.execute("SELECT id FROM jobs WHERE node='agent-main' AND request_key=? AND status='dispatched'",('voice-'+voice_id,)).fetchone()
+            if not forwarded:raise ValueError('request is not waiting at the main agent')
+            db.execute('INSERT OR IGNORE INTO approval_answers(job,approval,value) VALUES(?,?,?)',(forwarded['id'],approval,value))
+        return True
 
     def enroll_agent(self):
         return self.enroll('agent-main',['voice_command'])
@@ -189,8 +261,8 @@ class PCRegistry(DeviceStore):
             row=db.execute("SELECT seen,digest FROM nodes WHERE name='agent-main'").fetchone()
         return bool(row and row['digest'] and row['seen'] and self.clock()-row['seen']<=20)
 
-    def forward_to_agent(self,text,request_key):
-        return self.enqueue('agent-main','voice_command',{'text':text},request_key,300)
+    def forward_to_agent(self,text,request_key,via='voice'):
+        return self.enqueue('agent-main','voice_command',{'text':text} if via=='voice' else {'text':text,'via':via},request_key,300)
 
     def phone_inventory(self):
         states={n['name']:n for n in self.list_nodes()}
@@ -291,6 +363,7 @@ def pc_handler(registry,public_dir):
             self.end_headers();self.wfile.write(data)
 
         def do_POST(self):
+            if self.path in ('/history','/progress','/approve'):return self.desktop_post()
             if self.path!='/enroll':return super().do_POST()
             self.connection.settimeout(10)
             try:
@@ -302,7 +375,35 @@ def pc_handler(registry,public_dir):
                 reply['sha256']=hashlib.sha256((Path(public_dir)/'device-node.py').read_bytes()).hexdigest();code=200
             except (ValueError,TypeError,KeyError):reply={'error':'invalid or expired registration'};code=400
             except Exception:reply={'error':'registration unavailable'};code=500
-            data=json.dumps(reply).encode()
-            self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
+            self.reply_json(code,reply)
+
+        def reply_json(self,code,reply):
+            data=json.dumps(reply,ensure_ascii=False).encode()
+            self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store')
             self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+
+        def desktop_post(self):
+            """Desktop app history and payment answers; the main agent's progress reports."""
+            self.connection.settimeout(10)
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=4096:raise ValueError('invalid length')
+                body=json.loads(self.rfile.read(length))
+                authorization=self.headers.get('Authorization','')
+                if not authorization.startswith('Bearer '):raise PermissionError('missing bearer')
+                token=authorization[7:]
+                if not isinstance(body,dict):raise ValueError('invalid object')
+                if self.path=='/history' and {'node'}<=set(body)<={'node','before','limit'}:
+                    reply=registry.history(body['node'],token,body.get('before'),body.get('limit',20))
+                elif self.path=='/progress' and set(body)=={'node','id','result'}:
+                    if body['node']!='agent-main':raise PermissionError('main agent only')
+                    reply=registry.agent_progress(token,body['id'],body['result'])
+                elif self.path=='/approve' and set(body)=={'node','id','approval','value'}:
+                    reply={'ok':registry.approve(body['node'],token,body['id'],body['approval'],body['value'])}
+                else:raise ValueError('invalid request')
+                code=200
+            except PermissionError:code,reply=401,{'error':'unauthorized'}
+            except (ValueError,TypeError,KeyError,OverflowError):code,reply=400,{'error':'invalid request'}
+            except Exception:code,reply=500,{'error':'internal failure'}
+            self.reply_json(code,reply)
     return Handler

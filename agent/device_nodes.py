@@ -157,8 +157,10 @@ class DeviceStore:
             if set(payload) != {'text'} or not isinstance(payload['text'], str) or not 1 <= len(payload['text']) <= 240:
                 raise ValueError('message requires text (1..240 chars) only')
         elif action == 'voice_command':
-            if set(payload) != {'text'} or not isinstance(payload['text'], str) or not 1 <= len(payload['text'].strip()) <= 300:
-                raise ValueError('voice_command requires text (1..300 chars) only')
+            # Spoken or typed request text; 'via' only says how it was entered.
+            if (set(payload) not in ({'text'}, {'text', 'via'}) or not isinstance(payload['text'], str)
+                    or not 1 <= len(payload['text'].strip()) <= 500 or payload.get('via', 'voice') not in ('voice', 'typed')):
+                raise ValueError('voice_command requires text (1..500 chars) and optional via')
         elif action == 'phone_call':
             # A contact name or a choice token from the phone; never a raw number.
             if not (set(payload) == {'name'} and isinstance(payload['name'], str) and 1 <= len(payload['name'].strip()) <= 40
