@@ -1,7 +1,7 @@
 대비스 데스크톱 앱. Discord와 함께 쓰는 두 번째 입구입니다.
 
 **설치**
-1. `Daevis.exe`를 받아 `%LOCALAPPDATA%\Daevis` 같은 폴더에 두고 실행합니다. 서명하지 않은 파일이라 SmartScreen이 막으면 "추가 정보 → 실행"을 누릅니다.
+1. `Daevis.exe`를 받아 `%USERPROFILE%\.daevis\app` 같은 폴더에 두고 한 번 실행합니다(이때 Windows 로그인 자동 실행이 등록됩니다). 서명하지 않은 파일이라 SmartScreen이 막으면 "추가 정보 → 실행"을 누릅니다.
 2. 등록되지 않은 PC라면 연결 화면이 뜹니다. Discord에서 대비스에게 `PC 등록 노트북`처럼 보내 받은 명령을 통째로 붙여 넣고 LINK를 누릅니다. 코드는 15분 동안 한 번만 쓸 수 있습니다.
 3. 이미 `PC 등록` 설치 스크립트로 등록한 PC는 그 등록 정보를 그대로 씁니다.
 
@@ -10,6 +10,11 @@
 - 지난 요청과 답을 왼쪽 기록에서 다시 봅니다(등록한 PC들이 함께 보는 30일 기록).
 - 결제 직전 승인 요청을 Discord 버튼뿐 아니라 앱에서도 승인하거나 취소합니다.
 - 답변 목소리(Microsoft 신경망 음성 3종, Windows 내장 해미)와 속도를 고르고 미리 들어 봅니다.
+
+**다른 에이전트·스크립트에서 쓰기** (이 PC의 등록 정보를 그대로 씀)
+- 명령줄: `Daevis.exe ask "내일 일정 알려줘" --json` 은 진행 단계와 답을 한 줄씩 JSON으로 내보내고, 답을 받으면 종료 코드 0입니다. `Daevis.exe history --json`은 최근 기록을 줍니다.
+- MCP: `claude mcp add daevis -- "%USERPROFILE%\.daevis\app\Daevis.exe" mcp` 처럼 stdio 서버로 붙입니다. 도구는 `ask`(기다리거나 id만 받기), `request_status`, `history` 세 개입니다.
+- 결제 승인은 명령줄과 MCP로는 답할 수 없습니다. 질문만 보이고, 승인은 앱 창이나 Discord에서 소유자가 합니다.
 
 **알아 둘 것**
 - 음성 인식 모델은 처음 켤 때 내려받습니다(그래픽카드가 있으면 medium 약 1.5GB, 없으면 small 약 0.5GB).

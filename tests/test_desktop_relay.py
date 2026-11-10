@@ -359,3 +359,21 @@ def test_poller_passes_entry_mode_and_reports_progress():
     assert seen == {'via': 'typed', 'answers': [{'approval': 'x', 'value': 'deny'}]}
     assert ('/progress', {'node': 'agent-main', 'id': 'a1', 'result': {'step': '⏳'}}) in posts
     assert posts[-1][0] == '/ack'
+
+
+def test_progress_lists_the_steps_taken_so_far(tmp_path):
+    from agent.progress import record
+    from agent.voice_agent import current_state
+    for tool, args in [('baemin_search', {}), ('android_open', {'app': 'baemin'}), ('android_click', {}), ('android_click', {})]:
+        record(tmp_path, tool, args)
+    state = current_state(tmp_path)
+    assert state['step'].startswith('⏳ 버튼 누르는 중')
+    assert state['steps'] == ['배민에서 가게 메뉴 모으는 중', '앱 여는 중', '버튼 누르는 중']
+
+
+def test_step_list_is_bounded(tmp_path):
+    from agent.progress import record
+    from agent.voice_agent import current_state
+    for i in range(30):
+        record(tmp_path, 'web_search' if i % 2 else 'web_fetch', {})
+    assert len(current_state(tmp_path)['steps']) == 8

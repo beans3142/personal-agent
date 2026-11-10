@@ -80,7 +80,7 @@ flowchart LR
 | MCP 서버 | `agent/mcp_server.py` `deploy/run-mcp.sh` | 도구 목록 공개 범위와 승인 판단, 실제 도구 실행 |
 | 전원 봇 | `agent/power_bot.py` `agent/power.py` | 정확한 전원 문구만 받아 EC2를 켜고 끔 |
 | PC 요청 중계 | `agent/pc_control.py` `agent/voice_relay.py` `agent/voice_agent.py` | 등록한 PC의 글·음성 요청을 받아 본체에 넘기고, 진행 단계·결제 답·30일 기록을 PC와 주고받음 |
-| 데스크톱 앱 | `desktop/` | WebView2 화면, 호출어 듣기, 답변 목소리 선택. `desktop-v*` 태그를 올리면 GitHub Actions가 `Daevis.exe`를 Release에 올림 |
+| 데스크톱 앱 | `desktop/` | WebView2 화면(진행 단계 타임라인), 호출어 듣기, 답변 목소리 선택. 다른 에이전트용 `Daevis.exe ask --json` 명령줄과 `Daevis.exe mcp` stdio MCP 서버(`ask`·`request_status`·`history`). `desktop-v*` 태그를 올리면 GitHub Actions가 `Daevis.exe`를 Release에 올림 |
 | 로그인 | `agent/authgate.py` `agent/login_portal.py` | 저장된 브라우저 세션을 먼저 확인하고, 세션이 없을 때만 로그인을 시도. 실패하면 멈춘 상태를 기록해 반복하지 않음 |
 | Android | `agent/android_control.py` `agent/kakao_watch.py` | 화면 트리 읽기, 확인 후 한 번만 누르기, 카톡 전송 검증 |
 

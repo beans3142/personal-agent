@@ -33,8 +33,14 @@ def receipt(reply):
 def current_state(outbox):
     """What the desktop app shows while the request runs: the step and an open payment question."""
     from .approvals import payment_text, pending_requests
-    from .progress import read_steps, render
-    state = {'step': render(read_steps(outbox))}
+    from .progress import LABELS, read_steps, render
+    steps = read_steps(outbox)
+    labels = []
+    for step in steps:  # What the agent has done so far, one entry per change of activity.
+        label = LABELS.get(step.get('tool'), '작업하는 중')
+        if not labels or labels[-1] != label:
+            labels.append(label)
+    state = {'step': render(steps), 'steps': labels[-8:]}
     for request in pending_requests(outbox):
         state['approval'] = {'id': request.get('id'), 'text': payment_text(request), 'expires_in': request.get('expires_in', 0)}
         break

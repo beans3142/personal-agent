@@ -31,8 +31,14 @@ def load_script(name, module):
 class Controller:
     """Sends one request, follows its receipt and turns it into UI events and speech."""
     def __init__(self, relay, speaker, settings, emit):
-        self.relay, self.speaker, self.settings, self.emit = relay, speaker, settings, emit
+        self.relay, self.speaker, self.settings, self._emit = relay, speaker, settings, emit
         self.busy = threading.Lock()
+
+    def emit(self, event):
+        try:
+            self._emit(event)
+        except Exception:
+            pass  # A broken display or console must not end the request.
 
     def say(self, text):
         self.speaker.speak(text, self.settings['voice'], self.settings['rate'])
@@ -61,7 +67,7 @@ class Controller:
                     if speak:
                         self.say(result['say'])
                 if result.get('step'):
-                    self.emit({'kind': 'step', 'job': job, 'text': result['step']})
+                    self.emit({'kind': 'step', 'job': job, 'text': result['step'], 'steps': result.get('steps', [])})
                 approval = result.get('approval')
                 if approval and approval.get('id') != seen['approval']:
                     seen['approval'] = approval.get('id')

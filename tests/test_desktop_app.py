@@ -290,3 +290,60 @@ def test_cuda_folders_are_found_in_user_python_installs(tmp_path):
     folder = tmp_path / 'Packages/PythonSoftwareFoundation.Python.3.13_x/LocalCache/local-packages/Python313/site-packages/nvidia/cublas/bin'
     folder.mkdir(parents=True)
     assert core.cuda_dirs({'LOCALAPPDATA': str(tmp_path), 'APPDATA': str(tmp_path / 'none')}) == [folder]
+
+
+def test_step_events_carry_the_step_list_for_the_timeline():
+    c, events, _ = controller([{'status': 'dispatched', 'result': {'step': '⏳ 검색하는 중…', 'steps': ['웹 검색하는 중']}},
+                               {'status': 'succeeded', 'result': {'reply': '네'}}])
+    c.request('검색해줘', 'typed')
+    step = next(e for e in events if e['kind'] == 'step')
+    assert step['steps'] == ['웹 검색하는 중']
+
+
+# --- command line for other agents ---------------------------------------------------
+
+def test_cli_ask_prints_json_lines_and_exits_by_result():
+    import io
+    from desktop import cli
+    out = io.StringIO()
+    relay_ = FakeRelay([{'status': 'dispatched', 'result': {'step': 's', 'steps': ['a']}},
+                        {'status': 'succeeded', 'result': {'reply': '네', 'text': '**네**'}}])
+    code = cli.run(['ask', '안녕', '--json'], relay_, out)
+    lines = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert code == 0 and lines[0]['kind'] == 'started' and lines[-1] == {'kind': 'answer', 'job': 'j1', 'ok': True, 'text': '**네**'}
+    assert relay_.submitted == [('안녕', 'typed')]
+
+
+def test_cli_plain_output_and_failure_code():
+    import io
+    from desktop import cli
+    out = io.StringIO()
+    code = cli.run(['ask', '안녕'], FakeRelay([{'status': 'expired', 'result': None}]), out)
+    assert code == 1 and out.getvalue().strip() == '답을 받지 못했어요.'
+
+
+def test_cli_history_json():
+    import io
+    from desktop import cli
+    out = io.StringIO()
+    r = SimpleNamespace(history=lambda before=None, limit=20: {'items': [{'id': 'j1', 'text': '안녕'}], 'more': False})
+    assert cli.run(['history', '--limit', '5', '--json'], r, out) == 0
+    assert json.loads(out.getvalue())['items'][0]['id'] == 'j1'
+
+
+def test_cli_rejects_unknown_commands():
+    import io
+    from desktop import cli
+    with pytest.raises(SystemExit):
+        cli.run(['shutdown'], None, io.StringIO())
+
+
+def test_display_errors_do_not_end_the_request():
+    def broken(event):
+        if event['kind'] == 'step':
+            raise UnicodeEncodeError('cp949', '', 0, 1, 'x')
+    spoken = []
+    c = core.Controller(FakeRelay([{'status': 'dispatched', 'result': {'step': '⏳'}}, {'status': 'succeeded', 'result': {'reply': '네'}}]),
+                        SimpleNamespace(speak=lambda text, voice, rate: spoken.append(text)), dict(settings.DEFAULTS), broken)
+    c.request('안녕', 'voice')
+    assert spoken == ['네']

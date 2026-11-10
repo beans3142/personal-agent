@@ -77,6 +77,12 @@ canvas#core { width: 230px; height: 230px; }
 .ai.fail { border-left-color: var(--red); } .ai.fail .who { color: var(--red); }
 .foot { margin-top: 8px; font: 11px var(--mono); color: var(--muted); letter-spacing: .02em; white-space: pre-wrap; }
 .step { display: flex; align-items: center; gap: 10px; color: var(--cyan-soft); font-size: 13.5px; }
+.steps { list-style: none; margin: 2px 0 0; padding: 0; }
+.steps li { position: relative; padding: 3px 0 3px 24px; font-size: 13.5px; color: var(--muted); }
+.steps li::before { content: ''; position: absolute; left: 4px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); opacity: .45; }
+.steps li:not(:last-child)::after { content: ''; position: absolute; left: 7.5px; top: 20px; bottom: -6px; width: 1px; background: var(--line-strong); }
+.steps li.now { color: var(--cyan-soft); }
+.steps li.now::before { width: 10px; height: 10px; left: 2px; top: 8px; border: 2px solid var(--cyan); border-top-color: transparent; background: none; opacity: 1; animation: spin .8s linear infinite; }
 .step::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--cyan); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 .ai { position: relative; }
 .tools { position: absolute; top: 8px; right: 10px; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
@@ -306,6 +312,7 @@ function setMode(mode, sub) {
 
 /* ---------- transcript ---------- */
 function typeOut(el, text) {
+  if (document.hidden) { el.textContent = text; return; }  // Minimised windows throttle timers.
   el.textContent = ''; let i = 0;
   const step = Math.max(2, Math.ceil(text.length / 160));
   const timer = setInterval(() => { i += step; el.textContent = text.slice(0, i); scrollEnd(); if (i >= text.length) clearInterval(timer); }, 16);
@@ -327,6 +334,10 @@ function fillAnswer(node, text, ok, animate) {
   node.querySelector('.foot').textContent = parts.foot;
   node.querySelector('.tools').classList.remove('hidden');
   node.querySelector('.copy').onclick = () => { navigator.clipboard.writeText(parts.body); toast('복사했어요'); };
+}
+function timeline(e) {  // Every step the agent has taken; the last one is still running.
+  const steps = (e.steps && e.steps.length ? e.steps : [clean(e.text).replace(/^⏳\s*/, '').replace(/…$/, '')]).map(esc);
+  return '<ol class="steps">' + steps.map((s, i) => `<li class="${i === steps.length - 1 ? 'now' : 'done'}">${s}</li>`).join('') + '</ol>';
 }
 function renderLive() {
   const box = $('transcript');
@@ -425,10 +436,11 @@ async function setSetting(key, value) {
 
 /* ---------- events from Python ---------- */
 window.daevis = {
+  batch(list) { for (const e of list) this.on(e); },
   on(e) {
     switch (e.kind) {
       case 'started': state.busy++; liveTurn({ job: e.job, text: e.text, via: e.via }); setMode('thinking'); setTimeout(() => loadHistory(), 2000); break;
-      case 'step': { const n = e.job && nodeFor(e.job); if (n && !n.querySelector('.text')) n.querySelector('.body').innerHTML = `<div class="step">${esc(clean(e.text).replace(/…$/, ''))}…</div>`; setMode('thinking', clean(e.text)); break; }
+      case 'step': { const n = e.job && nodeFor(e.job); if (n && !n.querySelector('.body .text')) n.querySelector('.body').innerHTML = timeline(e); setMode('thinking', clean(e.text)); break; }
       case 'approval': showApproval(e); break;
       case 'approval_closed': if (state.approval && state.approval.job === e.job) hideApproval(); break;
       case 'answer': {

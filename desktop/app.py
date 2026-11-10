@@ -22,6 +22,12 @@ def page():
     return base / 'ui' / 'index.html' if (base / 'ui').exists() else base / 'desktop' / 'ui' / 'index.html'
 
 
+def coalesce(events):
+    """Microphone levels arrive ten times a second; only the newest one is worth drawing."""
+    levels = [e for e in events if e['kind'] == 'level']
+    return [e for e in events if e['kind'] != 'level'] + levels[-1:]
+
+
 class Desktop:
     def __init__(self):
         self.events = queue.Queue()
@@ -69,12 +75,16 @@ class Desktop:
         log = (Path.home() / '.daevis' / 'desktop' / 'app.log').open('a', encoding='utf-8', buffering=1)
         self.api._ready.wait()
         while True:
-            event = self.events.get()
-            if event['kind'] == 'status':
-                self.api._status = event['text']
-                print(time.strftime('%F %T'), 'status:', event['text'], file=log)  # No request text is logged.
+            batch = [self.events.get()]
+            time.sleep(0.05)
+            while not self.events.empty():
+                batch.append(self.events.get_nowait())
+            for event in batch:
+                if event['kind'] == 'status':
+                    self.api._status = event['text']
+                    print(time.strftime('%F %T'), 'status:', event['text'], file=log)  # No request text is logged.
             try:
-                self.window.evaluate_js('window.daevis && window.daevis.on(%s)' % json.dumps(event, ensure_ascii=False))
+                self.window.evaluate_js('window.daevis && window.daevis.batch(%s)' % json.dumps(coalesce(batch), ensure_ascii=False))
             except Exception:
                 pass
 
@@ -105,9 +115,35 @@ class Desktop:
         webview.start(private_mode=False, storage_path=str(Path.home() / '.daevis' / 'desktop' / 'webview'))
 
 
+def command_line(argv):
+    """`Daevis.exe ask ...` / `history`: print to the calling console, no window."""
+    import ctypes
+    from desktop import cli
+    if sys.stdout is not None:
+        sys.stdout.reconfigure(encoding='utf-8')  # Piped to another program or agent: UTF-8 JSON.
+    elif ctypes.windll.kernel32.AttachConsole(-1):
+        # Typed in a console: use its code page so Korean shows correctly there.
+        page = ctypes.windll.kernel32.GetConsoleOutputCP()
+        sys.stdout = open('CONOUT$', 'w', encoding=f'cp{page}', errors='replace')
+    if sys.stderr is None:
+        sys.stderr = sys.stdout
+    config = relay.find_config()
+    if not config:
+        print('이 PC가 등록되지 않았어요. 앱을 한 번 열어 등록해 주세요.', file=sys.stderr)
+        return 2
+    client = relay.Relay(json.loads(config.read_text(encoding='utf-8-sig')))
+    return cli.run(argv, client, sys.stdout)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Daevis desktop')
     parser.add_argument('--background', action='store_true', help='Start minimised (used at Windows login)')
+    if len(sys.argv) > 1 and sys.argv[1] in ('ask', 'history'):
+        raise SystemExit(command_line(sys.argv[1:]))
+    if len(sys.argv) > 1 and sys.argv[1] == 'mcp':  # stdio MCP server for other agents; stdin/stdout are the client's pipes.
+        from desktop import mcp_server
+        mcp_server.main()
+        return
     args = parser.parse_args()
     folder = Path.home() / '.daevis' / 'desktop'
     folder.mkdir(parents=True, exist_ok=True)

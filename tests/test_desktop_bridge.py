@@ -90,3 +90,10 @@ def test_page_cannot_reach_internal_objects(tmp_path):
     public = {name for name in dir(b) if not name.startswith('_')}
     assert public == {'boot', 'register', 'send', 'history', 'answer_payment', 'set_setting', 'preview',
                       'stop_speaking', 'minimize', 'hide', 'quit'}
+
+
+def test_pump_batches_events_and_keeps_only_the_latest_level():
+    from desktop.app import coalesce
+    events = [{'kind': 'level', 'value': 0.1}, {'kind': 'step', 'text': 'a'}, {'kind': 'level', 'value': 0.2},
+              {'kind': 'level', 'value': 0.3}, {'kind': 'answer', 'text': 'b'}]
+    assert coalesce(events) == [{'kind': 'step', 'text': 'a'}, {'kind': 'answer', 'text': 'b'}, {'kind': 'level', 'value': 0.3}]
