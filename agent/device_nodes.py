@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.loop import Tool
 
-ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call'})
+ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command'})
 
 
 def validate_bind_address(value):
@@ -122,10 +122,12 @@ class DeviceStore:
         self._auth(source, token)
         with self._db() as db:
             self._expire(db)
-            row = db.execute('SELECT id,node,action,status,expires FROM jobs WHERE id=? AND issuer=?', (job_id, source)).fetchone()
+            row = db.execute('SELECT id,node,action,status,expires,result FROM jobs WHERE id=? AND issuer=?', (job_id, source)).fetchone()
             if not row:
                 raise PermissionError('receipt not available to this issuer')
-            return dict(row)
+            receipt = dict(row)
+            receipt['result'] = json.loads(row['result']) if row['result'] else None
+            return receipt
 
     def _expire(self, db):
         now = self.clock()
@@ -154,6 +156,9 @@ class DeviceStore:
         if action in {'phone_alarm', 'text_message'}:
             if set(payload) != {'text'} or not isinstance(payload['text'], str) or not 1 <= len(payload['text']) <= 240:
                 raise ValueError('message requires text (1..240 chars) only')
+        elif action == 'voice_command':
+            if set(payload) != {'text'} or not isinstance(payload['text'], str) or not 1 <= len(payload['text'].strip()) <= 300:
+                raise ValueError('voice_command requires text (1..300 chars) only')
         elif action == 'phone_call':
             # A contact name or a choice token from the phone; never a raw number.
             if not (set(payload) == {'name'} and isinstance(payload['name'], str) and 1 <= len(payload['name'].strip()) <= 40

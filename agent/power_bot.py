@@ -47,6 +47,9 @@ class PowerBot(discord.Client):
     async def setup_hook(self):
         from .pc_progress import restore_shutdowns
         self.loop.create_task(restore_shutdowns(self))
+        if getattr(self,'pc_registry',None):
+            from .voice_relay import relay_loop
+            self.loop.create_task(relay_loop(self))
         from .pc_discord import PCHomeView
         self.add_view(PCHomeView(self))
         if getattr(self,'control_store',None):
@@ -227,6 +230,7 @@ def main() -> None:
     from http.server import ThreadingHTTPServer
     from threading import Thread
     bot.pc_registry=PCRegistry(Path('data/pc-control.sqlite3'))
+    bot.pc_registry.ensure_voice()
     handler=pc_handler(bot.pc_registry,Path('public'))
     config=Path('data/owner-control.json')
     if config.exists():

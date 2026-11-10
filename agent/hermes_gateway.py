@@ -18,6 +18,12 @@ class HermesGateway(Gateway):
         self.loop.create_task(self.schedule_loop())
         self.loop.create_task(self.heartbeat_loop())
         self.loop.create_task(self.idle_shutdown_loop())
+        token=os.environ.get('DAEVIS_AGENT_NODE_TOKEN')
+        if token:
+            # Voice requests from the owner's PCs arrive through the always-on power relay.
+            from .pc_control import BASE
+            from .voice_agent import agent_loop
+            self.loop.create_task(agent_loop(self,BASE,token))
 
     async def heartbeat_loop(self):
         from .heartbeat import HeartbeatTracker

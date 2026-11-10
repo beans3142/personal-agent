@@ -96,6 +96,8 @@ class PCRegistry(DeviceStore):
             default=int(not db.execute('SELECT 1 FROM pcs WHERE is_default=1').fetchone())
             db.execute('INSERT INTO nodes(name,digest,capabilities) VALUES(?,?,?)',(node,hashlib.sha256(token.encode()).hexdigest(),json.dumps(CAPABILITIES)))
             db.execute('INSERT INTO pcs VALUES(?,?,?,?)',(alias,label,node,default))
+            if db.execute("SELECT 1 FROM nodes WHERE name='voice'").fetchone():
+                db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(node,))
             db.execute('DELETE FROM pc_invites WHERE digest=?',(digest,))
         return {'node':node,'token':token,'label':label,'url':BASE,'actions':CAPABILITIES}
 
@@ -149,6 +151,43 @@ class PCRegistry(DeviceStore):
             with self._db() as db:
                 db.execute("INSERT INTO pc_shutdowns(job,cancel_id) SELECT id,? FROM jobs WHERE node=? AND action='pc_shutdown' AND status IN ('dispatched','succeeded') ON CONFLICT(job) DO UPDATE SET cancel_id=excluded.cancel_id",(job['id'],pc['node']))
         return {**job,'label':pc['label'],'node':pc['node']}
+
+    # --- voice relay: PCs send recognised speech to the internal 'voice' node ---
+    def ensure_voice(self):
+        with self._db() as db:
+            if not db.execute("SELECT 1 FROM nodes WHERE name='voice'").fetchone():
+                # Internal node: its random digest is never handed out, so nothing can poll it over HTTP.
+                db.execute("INSERT INTO nodes(name,digest,capabilities) VALUES('voice',?,?)",
+                           (hashlib.sha256(secrets.token_bytes(32)).hexdigest(),json.dumps(['voice_command'])))
+            for row in db.execute('SELECT node FROM pcs').fetchall():
+                db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(row['node'],))
+
+    def voice_jobs(self):
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE');self._expire(db)
+            rows=db.execute("SELECT * FROM jobs WHERE node='voice' AND status='queued' ORDER BY created,rowid").fetchall()
+            for row in rows:db.execute("UPDATE jobs SET status='dispatched' WHERE id=?",(row['id'],))
+        return [{'id':r['id'],'source':r['issuer'],'payload':json.loads(r['payload'])} for r in rows]
+
+    def voice_progress(self,job_id,result):
+        with self._db() as db:
+            db.execute("UPDATE jobs SET result=? WHERE id=? AND node='voice' AND status='dispatched'",(json.dumps(result,ensure_ascii=False),job_id))
+
+    def voice_finish(self,job_id,status,result):
+        if status not in ('succeeded','failed'):raise ValueError('invalid voice status')
+        with self._db() as db:
+            db.execute("UPDATE jobs SET status=?,result=? WHERE id=? AND node='voice'",(status,json.dumps(result,ensure_ascii=False),job_id))
+
+    def enroll_agent(self):
+        return self.enroll('agent-main',['voice_command'])
+
+    def agent_online(self):
+        with self._db() as db:
+            row=db.execute("SELECT seen,digest FROM nodes WHERE name='agent-main'").fetchone()
+        return bool(row and row['digest'] and row['seen'] and self.clock()-row['seen']<=20)
+
+    def forward_to_agent(self,text,request_key):
+        return self.enqueue('agent-main','voice_command',{'text':text},request_key,300)
 
     def phone_inventory(self):
         states={n['name']:n for n in self.list_nodes()}
