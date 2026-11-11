@@ -123,6 +123,7 @@ class Listener(threading.Thread):
         super().__init__(daemon=True)
         self.on_command, self.on_state, self.enabled, self.model_name = on_command, on_state, enabled, model
         self.on_event, self.frames_seen = on_event, 0
+        self.failure, self.was_listening = None, False
 
     def run(self):
         try:
@@ -134,6 +135,7 @@ class Listener(threading.Thread):
             try:
                 msvcrt.locking(self.lock.fileno(), msvcrt.LK_NBLCK, 1)
             except OSError:
+                self.failure = 'microphone held by another Daevis'
                 self.on_state('다른 음성 비서가 마이크를 쓰고 있어요')
                 return
             self.on_state('음성 인식 모델 불러오는 중…')
@@ -155,6 +157,7 @@ class Listener(threading.Thread):
                         pass
             segmenter = voice.Segmenter()
             with sd.InputStream(samplerate=voice.RATE, channels=1, dtype='float32', blocksize=voice.FRAME, callback=callback):
+                self.was_listening = True
                 self.on_state('"대비스"라고 부르면 들어요')
                 while True:
                     utterance = segmenter.feed(frames.get())
@@ -182,7 +185,17 @@ class Listener(threading.Thread):
                         frames.get_nowait()  # Drop what the speaker said while answering.
                     segmenter = voice.Segmenter()
         except Exception as error:
+            import traceback
+            self.failure = f'{type(error).__name__}: {error}'[:300]
+            self.trace = traceback.format_exc()[-1500:]
             self.on_state(f'음성 인식을 시작하지 못했어요 ({type(error).__name__})')
+        finally:
+            lock = getattr(self, 'lock', None)
+            if lock is not None:
+                try:
+                    lock.close()  # Let the next listener take the microphone lock.
+                except OSError:
+                    pass
 
 
 # --- PC power receiver -----------------------------------------------------------------
@@ -233,13 +246,29 @@ def retire_legacy_voice(run=subprocess.run):
 
 
 def set_autostart(enabled, exe=None):
+    """At login start only the headless agent (voice + PC power); the window opens when the owner wants it."""
     import winreg
     exe = exe or sys.executable
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        try:
+            winreg.DeleteValue(key, 'DaevisDesktop')  # Older builds started the window at login.
+        except OSError:
+            pass
         if enabled:
-            winreg.SetValueEx(key, 'DaevisDesktop', 0, winreg.REG_SZ, f'"{exe}" --background')
+            winreg.SetValueEx(key, 'DaevisAgent', 0, winreg.REG_SZ, f'"{exe}" --agent')
         else:
             try:
-                winreg.DeleteValue(key, 'DaevisDesktop')
+                winreg.DeleteValue(key, 'DaevisAgent')
             except OSError:
                 pass
+
+
+def start_agent(popen=subprocess.Popen):
+    """Launch the headless agent as its own process so voice keeps running after the window closes."""
+    if getattr(sys, 'frozen', False):
+        argv = [sys.executable, '--agent']
+    else:
+        argv = [sys.executable, '-m', 'desktop.app', '--agent']
+    flags = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    return popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                 creationflags=flags, close_fds=True, cwd=str(Path.home()))

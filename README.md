@@ -82,7 +82,7 @@ flowchart LR
 | 전원 봇 | `agent/power_bot.py` `agent/power.py` | 정확한 전원 문구만 받아 EC2를 켜고 끔 |
 | PC·폰 요청 중계 | `agent/pc_control.py` `agent/voice_relay.py` `agent/voice_agent.py` | 등록한 PC와 폰의 글·음성 요청을 받아 본체에 넘기고, 진행 단계·결제 답·30일 대화 기록(검색, 이어 묻기)을 기기들과 주고받음 |
 | Galaxy 앱 | `android/` | 데스크톱과 같은 화면을 WebView로 띄우는 Java 앱. `android/build.py`가 SDK 도구만으로 APK를 만들고, Android build 워크플로가 빌드와 에뮬레이터 실행 확인을 함 |
-| 데스크톱 앱 | `desktop/` | WebView2 화면(진행 단계 타임라인), 호출어 듣기, 답변 목소리 선택. 다른 에이전트용 `Daevis.exe ask --json` 명령줄과 `Daevis.exe mcp` stdio MCP 서버(`ask`·`request_status`·`history`). `desktop-v*` 태그를 올리면 GitHub Actions가 `Daevis.exe`를 Release에 올림 |
+| 데스크톱 앱 | `desktop/` | WebView2 화면(진행 단계 타임라인), 답변 목소리 선택. 호출어 듣기와 PC 전원 수신은 창 없이 도는 `Daevis.exe --agent`가 맡고 Windows 로그인 때 시작하며, 음성 인식이 멈추면 다시 시작한다. 다른 에이전트용 `Daevis.exe ask --json` 명령줄과 `Daevis.exe mcp` stdio MCP 서버(`ask`·`request_status`·`history`). `desktop-v*` 태그를 올리면 GitHub Actions가 `Daevis.exe`를 Release에 올림 |
 | 로그인 | `agent/authgate.py` `agent/login_portal.py` | 저장된 브라우저 세션을 먼저 확인하고, 세션이 없을 때만 로그인을 시도. 실패하면 멈춘 상태를 기록해 반복하지 않음 |
 | Android | `agent/android_control.py` `agent/kakao_watch.py` | 화면 트리 읽기, 확인 후 한 번만 누르기, 카톡 전송 검증 |
 

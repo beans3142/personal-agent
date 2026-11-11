@@ -65,10 +65,18 @@ class Desktop:
             self.autostart(self.api._settings['autostart'])
         except OSError:
             pass
-        core.Listener(lambda text: controller.request(text, 'voice'),
-                      lambda text: self.events.put({'kind': 'status', 'text': text}),
-                      lambda: self.api._settings['listen'],
-                      on_event=self.events.put).start()
+        # Voice lives in the headless agent so it keeps listening after this window closes.
+        from desktop import agent
+        if not agent.running():
+            try:
+                core.start_agent()
+            except OSError:
+                core.Listener(lambda text: controller.request(text, 'voice'),
+                              lambda text: self.events.put({'kind': 'status', 'text': text}),
+                              lambda: self.api._settings['listen'],
+                              on_event=self.events.put).start()
+                return
+        self.events.put({'kind': 'status', 'text': '백그라운드에서 "대비스"를 듣고 있어요'})
 
     def pump(self):
         """Forward Python events to the page in order, once the page is ready for them."""
@@ -137,7 +145,8 @@ def command_line(argv):
 
 def main():
     parser = argparse.ArgumentParser(description='Daevis desktop')
-    parser.add_argument('--background', action='store_true', help='Start minimised (used at Windows login)')
+    parser.add_argument('--background', action='store_true', help='Start minimised')
+    parser.add_argument('--agent', action='store_true', help='Headless voice and PC power agent (started at Windows login)')
     if len(sys.argv) > 1 and sys.argv[1] in ('ask', 'history'):
         raise SystemExit(command_line(sys.argv[1:]))
     if len(sys.argv) > 1 and sys.argv[1] == 'mcp':  # stdio MCP server for other agents; stdin/stdout are the client's pipes.
@@ -145,6 +154,9 @@ def main():
         mcp_server.main()
         return
     args = parser.parse_args()
+    if args.agent:
+        from desktop import agent
+        raise SystemExit(agent.main())
     folder = Path.home() / '.daevis' / 'desktop'
     folder.mkdir(parents=True, exist_ok=True)
     import msvcrt
