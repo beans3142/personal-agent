@@ -7,6 +7,7 @@ import secrets
 import time
 
 from .device_nodes import DeviceStore, handler_for
+from .pc_remote import RemoteMixin
 
 BASE='https://game.daehoon.games/pc-power'
 CAPABILITIES=['text_message','pc_shutdown','pc_cancel_shutdown']
@@ -42,7 +43,7 @@ def parse_pc_command(text):
     return ('cancel' if '취소' in m[2] else 'wake' if m[2].startswith('켜') else 'shutdown'),target
 
 
-class PCRegistry(DeviceStore):
+class PCRegistry(RemoteMixin,DeviceStore):
     def __init__(self,path,clock=time.time):
         super().__init__(path,clock)
         with self._db() as db:
@@ -107,6 +108,7 @@ class PCRegistry(DeviceStore):
             if db.execute("SELECT 1 FROM nodes WHERE name='voice'").fetchone():
                 db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(node,))
             db.execute('DELETE FROM pc_invites WHERE digest=?',(digest,))
+        self.ensure_pc_tasks()  # The main agent may send remote-control steps to the new PC.
         return {'node':node,'token':token,'label':label,'url':BASE,'actions':CAPABILITIES}
 
     def resolve(self,label):
@@ -172,6 +174,7 @@ class PCRegistry(DeviceStore):
             if db.execute("SELECT 1 FROM nodes WHERE name='agent-main'").fetchone():
                 # Spoken PC/phone/power commands from Discord voice messages come back through the agent.
                 db.execute("INSERT OR IGNORE INTO controls VALUES('agent-main','voice','voice_command')")
+        self.ensure_pc_tasks()
 
     def voice_jobs(self):
         with self._db() as db:
@@ -381,6 +384,7 @@ def pc_handler(registry,public_dir):
     parent=handler_for(registry)
     class Handler(parent):
         def do_GET(self):
+            if self.path.startswith('/share/'):return self.share_get()
             filenames={'/client.py':'device-node.py','/install.ps1':'install-pc.ps1','/phone-install.sh':'install-phone.sh'}
             if self.path not in filenames:self.send_error(404);return
             data=(Path(public_dir)/filenames[self.path]).read_bytes()
@@ -390,6 +394,8 @@ def pc_handler(registry,public_dir):
 
         def do_POST(self):
             if self.path in ('/history','/progress','/approve'):return self.desktop_post()
+            if self.path=='/pc/upload':return self.upload()
+            if self.path in ('/pc/poll','/pc/download','/pc/list','/pc/share') or self.path=='/request-status' and self._peek_wait():return self.remote_post()
             if self.path!='/enroll':return super().do_POST()
             self.connection.settimeout(10)
             try:
@@ -401,6 +407,105 @@ def pc_handler(registry,public_dir):
                 reply['sha256']=hashlib.sha256((Path(public_dir)/'device-node.py').read_bytes()).hexdigest();code=200
             except (ValueError,TypeError,KeyError):reply={'error':'invalid or expired registration'};code=400
             except Exception:reply={'error':'registration unavailable'};code=500
+            self.reply_json(code,reply)
+
+        def _peek_wait(self):
+            # /request-status with 'wait' is a long poll; read the body once and keep it for remote_post.
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=4096:return False
+                self._body=self.rfile.read(length)
+                body=json.loads(self._body)
+            except (ValueError,OSError):
+                self._body=b'';return True
+            if isinstance(body,dict) and 'wait' in body:return True
+            self._replay(self._body);return False
+
+        def _replay(self,data):
+            import io
+            self.rfile=io.BytesIO(data)
+
+        def _token(self):
+            authorization=self.headers.get('Authorization','')
+            if not authorization.startswith('Bearer '):raise PermissionError('missing bearer')
+            return authorization[7:]
+
+        def remote_post(self):
+            """Remote PC control: long polls, the main agent's PC list and attachment downloads."""
+            self.connection.settimeout(40)
+            try:
+                data=getattr(self,'_body',None)
+                if data is None:
+                    length=int(self.headers.get('Content-Length','0'))
+                    if not 0<length<=4096:raise ValueError('invalid length')
+                    data=self.rfile.read(length)
+                body=json.loads(data);token=self._token()
+                if not isinstance(body,dict):raise ValueError('invalid object')
+                if self.path=='/pc/poll' and set(body)=={'node','wait'}:
+                    reply={'job':registry.task_poll(body['node'],token,body['wait'])}
+                elif self.path=='/request-status' and set(body)=={'node','id','wait'}:
+                    reply=registry.wait_status(body['node'],token,body['id'],body['wait'])
+                elif self.path=='/pc/list' and set(body)=={'node'}:
+                    if body['node']!='agent-main':raise PermissionError('main agent only')
+                    reply={'pcs':registry.agent_pcs(token)}
+                elif self.path=='/pc/share' and set(body)=={'node','id'}:
+                    reply=registry.file_share(body['node'],token,body['id'])
+                    reply['url']=BASE+'/share/'+reply['token']
+                elif self.path=='/pc/download' and set(body)=={'node','id'}:
+                    name,content=registry.file_get(body['node'],token,body['id'])
+                    from urllib.parse import quote
+                    self.send_response(200);self.send_header('Content-Type','application/octet-stream')
+                    self.send_header('X-Daevis-Name',quote(name));self.send_header('Cache-Control','no-store')
+                    self.send_header('Content-Length',str(len(content)));self.end_headers();self.wfile.write(content)
+                    return
+                else:raise ValueError('invalid request')
+                code=200
+            except PermissionError:code,reply=401,{'error':'unauthorized'}
+            except (ValueError,TypeError,KeyError,OverflowError):code,reply=400,{'error':'invalid request'}
+            except Exception:code,reply=500,{'error':'internal failure'}
+            self.reply_json(code,reply)
+
+        def share_get(self):
+            """Owner download link for a file too big for Discord; streams the file."""
+            from urllib.parse import quote
+            try:
+                name,path=registry.shared(self.path[len('/share/'):])
+                size=path.stat().st_size
+            except (ValueError,OSError):
+                self.send_error(404);return
+            self.send_response(200);self.send_header('Content-Type','application/octet-stream')
+            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
+            self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(size));self.end_headers()
+            with path.open('rb') as f:
+                for chunk in iter(lambda:f.read(1<<20),b''):self.wfile.write(chunk)
+
+        def upload(self):
+            """Raw bytes with X-Daevis-Node / -Audience / -Name (URL-encoded) headers."""
+            from urllib.parse import unquote
+            from .pc_remote import FILE_LIMIT
+            self.connection.settimeout(120)
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=FILE_LIMIT:raise ValueError('invalid length')
+                token=self._token()
+                node,audience=self.headers.get('X-Daevis-Node',''),self.headers.get('X-Daevis-Audience','')
+                name=unquote(self.headers.get('X-Daevis-Name',''))
+                if not registry.authenticate(node,token):raise PermissionError('unauthorized')
+                spool=Path(registry.path).parent/'pc-files'/('upload-'+secrets.token_hex(8)+'.part')
+                spool.parent.mkdir(parents=True,exist_ok=True)
+                try:
+                    with spool.open('wb') as f:
+                        left=length
+                        while left:
+                            chunk=self.rfile.read(min(left,1<<20))
+                            if not chunk:raise ValueError('upload ended early')
+                            f.write(chunk);left-=len(chunk)
+                    reply=registry.file_put(node,token,audience,name,spool);code=200
+                finally:
+                    spool.unlink(missing_ok=True)
+            except PermissionError:code,reply=401,{'error':'unauthorized'}
+            except (ValueError,TypeError,KeyError,OverflowError):code,reply=400,{'error':'invalid request'}
+            except Exception:code,reply=500,{'error':'internal failure'}
             self.reply_json(code,reply)
 
         def reply_json(self,code,reply):

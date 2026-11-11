@@ -39,6 +39,7 @@ SESSION_REFRESH_SECONDS = 6 * 3600
 IDLE_CHECK_SECONDS = 300
 MAX_HISTORY_ITEMS = 40
 log = logging.getLogger("agent")
+ATTACHMENT_LIMIT = 10 * 1024 * 1024  # Discord upload cap for bots in an unboosted server or DM.
 KAKAO_STATUS = {"KAKAO_SENT": "메시지 전송을 완료했습니다.", "KAKAO_NOT_SENT": "메시지를 보내지 못했습니다.", "KAKAO_RECIPIENT_REQUIRED": "수신자를 확인해야 합니다.", "KAKAO_CHECKED": "카톡 상태를 확인했습니다.",
                 "KAKAO_BLOCKED": "이전 카톡 전송이 끝까지 확인되지 않아 새 전송을 막아 두었어요. 그 메시지가 실제로 갔는지 카톡에서 확인한 뒤 '카톡 잠금 해제'라고 보내 주세요."}
 KAKAO_NOT_RUN_REPLY = '카카오톡 도구가 실행되지 않아 메시지는 보내지 않았습니다.'
@@ -528,6 +529,21 @@ class Gateway(discord.Client):
                 await channel.send(content=caption, file=attachment)
             finally:
                 attachment.close()
+            path.unlink()
+        folder = outbox / "files"  # PC files, screenshots and run_code results.
+        for path in sorted(folder.iterdir()) if folder.is_dir() else []:
+            if not path.is_file():
+                continue
+            size = path.stat().st_size
+            if size > ATTACHMENT_LIMIT:
+                await channel.send(f"📎 {path.name}은 {size / 1048576:.1f}MB라 Discord로 보낼 수 없어요(최대 {ATTACHMENT_LIMIT // 1048576}MB).")
+            else:
+                attachment = discord.File(path, filename=path.name)
+                try:
+                    # Discord drops non-ASCII letters from attachment names, so the caption keeps the real one.
+                    await channel.send(content=f"📎 {path.name}", file=attachment)
+                finally:
+                    attachment.close()
             path.unlink()
 
     def run_scheduled(self, text: str) -> str:

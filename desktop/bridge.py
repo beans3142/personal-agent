@@ -3,6 +3,8 @@
 pywebview exposes every public attribute of this object to JavaScript, so all
 state lives in underscore names and only the calls below are public.
 """
+import os
+import re
 import threading
 
 from desktop import relay, settings, tts
@@ -90,7 +92,8 @@ class Bridge:
             return {'ok': False}
         if key in LIMITS and not LIMITS[key][0] <= value <= LIMITS[key][1]:
             return {'ok': False}
-        self._settings[key] = value
+        # Re-read first: the agent's Ctrl+Alt+F12 switch may have changed the file meanwhile.
+        self._settings = {**self._settings, **settings.load(self._path), key: value}
         settings.save(self._path, self._settings)
         if key == 'autostart' and self._autostart:
             try:
@@ -104,6 +107,13 @@ class Bridge:
         worker.start()
         if wait:
             worker.join()
+        return {'ok': True}
+
+    def open_link(self, url):
+        """Download buttons in answers: only the relay's file links, opened in the default browser."""
+        if not isinstance(url, str) or not re.fullmatch(re.escape(relay.BASE) + r'/share/[A-Za-z0-9_-]{43}', url):
+            return {'ok': False}
+        os.startfile(url)
         return {'ok': True}
 
     def stop_speaking(self):

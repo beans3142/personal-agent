@@ -265,6 +265,7 @@ input[type=range] { flex: 1; accent-color: var(--cyan); }
     <button class="toggle" data-key="listen" data-feature="wake"><span>"대비스" 호출어 듣기</span><span class="switch"></span></button>
     <button class="toggle" data-key="speak_typed"><span>글로 보낸 요청도 목소리로 답하기</span><span class="switch"></span></button>
     <button class="toggle" data-key="autostart" data-feature="autostart"><span>로그인할 때 자동 실행</span><span class="switch"></span></button>
+    <button class="toggle" data-key="remote_control" title="Ctrl+Alt+F12로도 켜고 끌 수 있어요"><span>대비스가 이 PC 조작하기 (Ctrl+Alt+F12)</span><span class="switch"></span></button>
     <p class="note" id="settingsNote"></p>
     <button class="danger" id="quit" data-feature="window">앱 종료</button>
   </section>
@@ -425,10 +426,16 @@ function fillAI(node, text, ok, animate, traced) {
   const parts = split(text);
   node.classList.remove('pending'); node.classList.toggle('fail', !ok);
   node.querySelector('.body').innerHTML = steps(traced, true) + '<div class="text"></div>' + (parts.foot ? `<div class="foot">${esc(parts.foot)}</div>` : '') +
-    '<div class="tools"><button class="chip copy">복사</button></div>';
+    '<div class="tools"><button class="chip copy">복사</button>' + fileButtons(parts.body) + '</div>';
   const el = node.querySelector('.text');
   if (animate && !document.hidden) typeOut(el, parts.body || '처리했어요.'); else el.textContent = parts.body || '처리했어요.';
   node.querySelector('.copy').onclick = () => { navigator.clipboard.writeText(parts.body); toast('복사했어요'); };
+  node.querySelectorAll('.file').forEach(btn => btn.onclick = () => api().open_link(btn.dataset.url));
+}
+// "📎 name: https://…/share/<token>" lines the server adds for files it sent; each becomes a download button.
+function fileButtons(text) {
+  const found = [...(text || '').matchAll(/📎 ([^\n:]{1,120}): (https:\/\/\S+\/share\/[A-Za-z0-9_-]{43})/g)];
+  return found.map(m => `<button class="chip file" data-url="${esc(m[2])}" title="24시간 동안 받을 수 있어요">📎 ${esc(m[1])} 받기</button>`).join('');
 }
 function typeOut(el, text) {
   let i = 0; const step = Math.max(2, Math.ceil(text.length / 140));

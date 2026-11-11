@@ -33,7 +33,10 @@ READ_TOOLS = frozenset({
     "memory_search", "kb_search", "schedule_list", "web_search", "web_fetch", "mail_list", "kakao_find_recipient",
     "mail_read", "route_search", "map_search", "android_screen", "baemin_search", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
-PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs"})
+PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs",
+                           # The owner's PC and the code sandbox: never from a public channel.
+                           "pc_list", "pc_screenshot", "pc_windows", "pc_ui", "pc_act", "pc_open", "pc_find_files",
+                           "pc_send_file", "pc_save_file", "pc_system", "pc_shell", "run_code"})
 DISPATCH_TOOLS = frozenset({"plan_execute", "recipe_run"})
 
 
@@ -176,6 +179,13 @@ def build_runtime(data: Path, env) -> ToolBridge:
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]
     if env.get("DISCORD_BOT_TOKEN"):
         tools.append(build_discord_user_tool(gate, browser, env["DISCORD_BOT_TOKEN"]))
+    outbox = lambda: Path(env.get("AGENT_OUTBOX") or data / "outbox")
+    from .sandbox import RUNS, build_sandbox_tools
+    tools += build_sandbox_tools(outbox, env)
+    if env.get("DAEVIS_AGENT_NODE_TOKEN"):
+        from .pc_control import BASE
+        from .pc_tools import build_pc_tools, relay_link
+        tools += build_pc_tools(relay_link(BASE, env["DAEVIS_AGENT_NODE_TOKEN"]), outbox, Path(env.get("DAEVIS_SANDBOX_RUNS", RUNS)))
     plugin_tools, plugin_read, plugin_private = load_private_plugin(data, env)
     tools += plugin_tools
     raw = env.get("DAEVIS_MCP_ALLOW_TOOLS", "memory_search,route_search,map_search,android_screen")

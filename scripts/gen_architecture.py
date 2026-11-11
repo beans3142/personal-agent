@@ -144,8 +144,10 @@ ROWS = [
     ('si', 'kakaotalk', '카카오톡', 'kakao_send · self_send · find_recipient'),
     ('si', 'n8n', 'n8n 워크플로 (Docker)', 'n8n_list · n8n_run'),
     ('lu', 'smartphone', '기기 노드 중계 :8791', 'device_nodes · enqueue · jobs'),
+    ('lu', 'monitor', 'PC 원격 제어 · 상시 중계 long-poll', 'pc_find_files · send_file · ui · act · shell'),
+    ('si', 'docker', '코드 실행 샌드박스 (Docker)', 'run_code · 512MB · 300초'),
 ]
-TX, Y0, STEP = 1070, 372, 66
+TX, Y0, STEP = 1070, 372, 56
 ys = [Y0 + i*STEP for i in range(len(ROWS))]
 for (k, n, l, s), y in zip(ROWS, ys):
     row(TX, y, k, n, l, s)
@@ -158,7 +160,7 @@ for y in ys:
 # externals
 EXT = {2: ('si', 'duckduckgo', 'DuckDuckGo'), 3: ('si', 'kakao', '카카오 로컬 · 네이버 지도'),
        4: ('si', 'naver', '네이버 메일 · 로그인'), 5: ('png', 'baemin', '배달의민족 등 앱'),
-       6: ('si', 'kakaotalk', '카카오톡 계정'), 8: ('lu', 'laptop', '내 PC · 폰')}
+       6: ('si', 'kakaotalk', '카카오톡 계정'), 8: ('lu', 'laptop', '내 PC · 폰'), 9: ('lu', 'monitor', '내 Windows PC (UI Automation)')}
 EX = 1440
 for i, (k, n, l) in EXT.items():
     y = ys[i]

@@ -91,7 +91,7 @@ def test_page_cannot_reach_internal_objects(tmp_path):
     b, _ = make(tmp_path)
     public = {name for name in dir(b) if not name.startswith('_')}
     assert public == {'boot', 'register', 'send', 'history', 'answer_payment', 'set_setting', 'preview',
-                      'stop_speaking', 'minimize', 'hide', 'quit'}
+                      'stop_speaking', 'minimize', 'hide', 'quit', 'open_link'}
 
 
 def test_pump_batches_events_and_keeps_only_the_latest_level():
@@ -99,3 +99,14 @@ def test_pump_batches_events_and_keeps_only_the_latest_level():
     events = [{'kind': 'level', 'value': 0.1}, {'kind': 'step', 'text': 'a'}, {'kind': 'level', 'value': 0.2},
               {'kind': 'level', 'value': 0.3}, {'kind': 'answer', 'text': 'b'}]
     assert coalesce(events) == [{'kind': 'step', 'text': 'a'}, {'kind': 'answer', 'text': 'b'}, {'kind': 'level', 'value': 0.3}]
+
+
+def test_download_links_open_only_relay_share_urls(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr(bridge.os, 'startfile', lambda url: opened.append(url), raising=False)
+    b = bridge.Bridge(tmp_path / 's.json')
+    good = bridge.relay.BASE + '/share/' + 'a' * 43
+    assert b.open_link(good) == {'ok': True} and opened == [good]
+    for bad in ('https://evil.example/share/' + 'a' * 43, good + '/../x', 'file:///C:/Windows/notepad.exe', bridge.relay.BASE + '/share/x'):
+        assert b.open_link(bad) == {'ok': False}
+    assert opened == [good]

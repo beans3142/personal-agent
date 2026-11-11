@@ -62,7 +62,7 @@ async def report_loop(outbox, report):
             log.warning('progress report failed (%s)', type(error).__name__)
 
 
-async def voice_turn(gateway, text, report=None, via='voice', topic=None):
+async def voice_turn(gateway, text, report=None, via='voice', topic=None, share=None):
     from .artifacts import async_outbox_scope
     dm = await gateway.owner_dm()
     if hasattr(gateway, 'last_activity'):
@@ -85,13 +85,45 @@ async def voice_turn(gateway, text, report=None, via='voice', topic=None):
             if reporter:
                 reporter.cancel()
         await gateway.send_long(dm, mark + text + '\n\n' + reply)
+        links = await share_files(outbox, share) if share else []
         await gateway.send_outbox(dm)
     result = receipt(reply)
     last = getattr(gateway, '_last_topic', None)
     if isinstance(last, dict) and last.get('id'):
         result['topic'] = last['id']  # Lets the next follow-up in this thread continue the same topic.
         result = receipt_fit(result)
-    return result
+    return with_links(result, links) if links else result
+
+
+async def share_files(outbox, share):
+    """Download links for this request's files, so the desktop app can offer them too (Discord gets attachments)."""
+    folder, links = Path(outbox) / 'files', []
+    for path in sorted(folder.iterdir())[:5] if folder.is_dir() else []:
+        try:
+            links.append((path.name, await asyncio.to_thread(share, path)))
+        except Exception as error:
+            log.warning('file link failed (%s)', type(error).__name__)
+    return links
+
+
+def with_links(result, links):
+    """Links go at the end of the answer text and survive trimming; the app shows them as download buttons."""
+    block = ''.join(f'\n\n📎 {name}: {url}' for name, url in links)
+    body = result['text']
+    while body and len(json.dumps({**result, 'text': body + block}, ensure_ascii=False)) > RESULT_LIMIT:
+        body = body[:max(0, len(body) - 80)].rstrip('…') + '…'
+    return {**result, 'text': body + block}
+
+
+def relay_share(base, token):
+    """Upload a file for the main agent itself and return a day-long download link for the owner."""
+    from .pc_tools import relay_link
+    link = relay_link(base, token)
+
+    def share(path):
+        meta = link.upload('agent-main', path.name, Path(path).read_bytes())
+        return link.share(meta['id'])['url']
+    return share
 
 
 def receipt_fit(result):
@@ -132,9 +164,10 @@ def relay_post(base, token):
 
 async def agent_loop(gateway, base, token, node='agent-main'):
     post = relay_post(base, token)
+    share = relay_share(base, token)
     while True:
         try:
-            await poll_once(post, lambda text, via, report, topic=None: voice_turn(gateway, text, report, via, topic), node)
+            await poll_once(post, lambda text, via, report, topic=None: voice_turn(gateway, text, report, via, topic, share), node)
             await asyncio.sleep(2)
         except Exception as error:
             log.warning('voice relay unavailable (%s)', type(error).__name__)

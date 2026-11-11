@@ -266,3 +266,25 @@ def test_quiet_speech_above_room_noise_is_still_segmented():
     frames = [room] * 40 + [speech] * 40 + [room] * 40
     done = [u for f in frames if (u := seg.feed(f)) is not None]
     assert len(done) == 1
+
+
+def test_voice_turn_adds_download_links_for_files_to_the_app_receipt(tmp_path):
+    import json
+    from agent.voice_agent import voice_turn, RESULT_LIMIT
+    from agent.artifacts import current_outbox
+    dm = SimpleNamespace(id=55, send=AsyncMock(), typing=None)
+    def turn(chat, text, approve):
+        folder = current_outbox(tmp_path) / 'files'
+        folder.mkdir(parents=True)
+        (folder / '발표.html').write_bytes(b'x')
+        return '보냈어요. ' + '가' * 3000
+    gateway = SimpleNamespace(owner_dm=AsyncMock(return_value=dm), turn_lock=asyncio.Lock(), turn=turn,
+                              approver=lambda channel: None, send_long=AsyncMock(), send_outbox=AsyncMock(), watch_approvals=AsyncMock())
+    shared = []
+    def share(path):
+        shared.append(path.name)
+        return 'https://relay.example/share/' + 'a' * 43
+    result = asyncio.run(voice_turn(gateway, '발표자료 보내줘', share=share))
+    assert shared == ['발표.html'] and gateway.send_outbox.await_count == 1
+    assert result['text'].endswith('📎 발표.html: https://relay.example/share/' + 'a' * 43)
+    assert len(json.dumps(result, ensure_ascii=False)) <= RESULT_LIMIT

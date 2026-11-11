@@ -128,6 +128,11 @@ def main():
             core.start_power_receiver(config)
         except Exception as error:
             log(f'power receiver not started ({type(error).__name__})')
+        try:
+            from desktop import remote
+            remote.start(config, log)  # The owner's server agent may operate this PC (Ctrl+Alt+F12 turns it off).
+        except Exception as error:
+            log(f'remote control not started ({type(error).__name__})')
 
         listen = Listening()
 

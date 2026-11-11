@@ -23,7 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.loop import Tool
 
-ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command'})
+ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command', 'pc_task'})
+# Remote PC control steps the main agent sends to the owner's PC agent (desktop/remote.py runs them).
+PC_OPS = frozenset({'screenshot', 'windows', 'ui', 'act', 'open', 'find', 'send_file', 'save_file', 'system', 'shell'})
+PC_TASK_LIMIT = 3000  # JSON characters; the relay body cap is 4096.
 
 
 def validate_bind_address(value):
@@ -164,6 +167,10 @@ class DeviceStore:
                     or not 1 <= len(payload['text'].strip()) <= 500 or payload.get('via', 'voice') not in ('voice', 'typed')
                     or any(not isinstance(payload.get(k, 'a' * 32), str) or not re.fullmatch(r'[0-9a-f]{32}', payload.get(k, 'a' * 32)) for k in ('thread', 'topic'))):
                 raise ValueError('voice_command requires text (1..500 chars) and optional via/thread/topic')
+        elif action == 'pc_task':
+            if (set(payload) != {'op', 'args'} or payload['op'] not in PC_OPS or not isinstance(payload['args'], dict)
+                    or len(json.dumps(payload, ensure_ascii=False)) > PC_TASK_LIMIT):
+                raise ValueError('pc_task requires a known op and an args object')
         elif action == 'phone_call':
             # A contact name or a choice token from the phone; never a raw number.
             if not (set(payload) == {'name'} and isinstance(payload['name'], str) and 1 <= len(payload['name'].strip()) <= 40
@@ -211,7 +218,8 @@ class DeviceStore:
                         now, now + ttl_seconds, 'queued', issuer, request_key if issuer is not None else None))
         return {'id': job_id, 'status': 'queued', 'deduplicated': False}
 
-    def poll(self, node, token):
+    def poll(self, node, token, actions=None, exclude=()):
+        """Hand out the oldest queued job; `actions`/`exclude` let two receivers on one node split the work."""
         self._auth(node, token)
         with self._db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -219,7 +227,12 @@ class DeviceStore:
                 raise PermissionError('revoked node')
             self._expire(db)
             db.execute('UPDATE nodes SET seen=? WHERE name=?', (self.clock(), node))
-            row = db.execute("SELECT * FROM jobs WHERE node=? AND status='queued' ORDER BY created,rowid LIMIT 1", (node,)).fetchone()
+            query, args = "SELECT * FROM jobs WHERE node=? AND status='queued'", [node]
+            if actions is not None:
+                query += ' AND action IN (%s)' % ','.join('?' * len(actions)); args += list(actions)
+            if exclude:
+                query += ' AND action NOT IN (%s)' % ','.join('?' * len(exclude)); args += list(exclude)
+            row = db.execute(query + ' ORDER BY created,rowid LIMIT 1', args).fetchone()
             if row:
                 db.execute("UPDATE jobs SET status='dispatched' WHERE id=?", (row['id'],))
                 return dict(id=row['id'], source=row['issuer'] or 'owner', action=row['action'],

@@ -376,3 +376,21 @@ def test_owner_can_unlock_a_stuck_kakao_send_without_a_model(tmp_path, monkeypat
     asyncio.run(Gateway.on_message(bot, msg))
     assert not calls and '잠금을 풀었어요' in msg.channel.send.await_args.args[0]
     assert json.loads((tmp_path / 'kakao-direct-send.json').read_text())['status'] == 'reviewed'
+
+
+def test_files_from_pc_and_code_runs_are_sent_and_removed(tmp_path, monkeypatch):
+    import agent.gateway as gw
+    files = tmp_path / "files"
+    files.mkdir()
+    (files / "발표.pptx").write_bytes(b"x" * 10)
+    (files / "huge.bin").write_bytes(b"x" * 30)
+    monkeypatch.setattr(gw, "current_outbox", lambda default: tmp_path)
+    monkeypatch.setattr(gw, "ATTACHMENT_LIMIT", 20)
+    monkeypatch.setattr(gw.discord, "File", lambda path, filename=None: SimpleNamespace(close=lambda: None, path=path, filename=filename))
+    channel = Channel(20)
+    asyncio.run(Gateway.send_outbox(SimpleNamespace(), channel))
+    sent = [call.kwargs for call in channel.send.await_args_list]
+    assert [k["file"].filename for k in sent if "file" in k] == ["발표.pptx"]
+    assert [k["content"] for k in sent if "file" in k] == ["📎 발표.pptx"]
+    assert any("huge.bin" in (call.args[0] if call.args else call.kwargs.get("content", "")) for call in channel.send.await_args_list)
+    assert not list(files.iterdir())

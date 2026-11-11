@@ -2,7 +2,8 @@
 import json
 from pathlib import Path
 
-DEFAULTS = {'voice': 'ko-KR-SunHiNeural', 'rate': 0, 'speak_typed': False, 'listen': True, 'autostart': True}
+DEFAULTS = {'voice': 'ko-KR-SunHiNeural', 'rate': 0, 'speak_typed': False, 'listen': True, 'autostart': True,
+            'remote_control': True}  # The owner's server agent may operate this PC (Ctrl+Alt+F12 flips it).
 PATH = Path.home() / '.daevis' / 'desktop' / 'settings.json'
 
 

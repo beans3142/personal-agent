@@ -27,6 +27,8 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | <img src="https://cdn.simpleicons.org/android" width="20"> | 앱 화면 조작 | `배민 열어서 최근 주문 보여줘` | 모델이 화면을 보고 한 단계씩 | `android_*` |
 | <img src="https://cdn.simpleicons.org/n8n" width="20"> | 정해진 자동화 실행 | `n8n 상태 확인 돌려줘` | 모델은 이름만 고름 | `n8n_list` `n8n_run` |
 | 💻 | 내 PC·폰에 작업 보내기 | `집 PC 켜줘` | 등록한 기기가 가져가 실행 (PC 켜기, 폰 알람, 문자) | `device_*` |
+| 🖱️ | 내 PC 원격 조작 | `내 데스크톱에서 발표자료 찾아서 보내줘` | 모델이 PC의 Daevis 에이전트에 한 단계씩 보냄. 파일 검색, 화면 캡처, UI Automation 클릭·입력, PowerShell. 10MB 넘는 파일은 24시간 링크. PC에서 Ctrl+Alt+F12로 끔 | `pc_*` |
+| 🧪 | 코드 실행 | `이 CSV 그래프로 그려줘` | 서버의 일회용 Docker 컨테이너(비루트, 512MB, 최대 300초, 인터넷 가능). `/work/out` 파일을 보내 줌 | `run_code` |
 | ⚡ | 서버 켜기·끄기 | `대비스 온라인` / `대비스 오프라인` | 상시 서버의 전원 봇 | EC2 API |
 | 📱 | Galaxy 앱에서 묻기 | 앱에 적거나 마이크를 누르고 말하기, 디지털 어시스턴트 제스처·빠른 설정 타일로 바로 부르기 | PC 앱과 같은 화면, 같은 대화 기록. 폰의 한국어 TTS로 답을 읽고, 앱을 안 보고 있으면 알림 | `android/` |
 | 🖥️ | PC 앱에서 묻기 | 앱 입력창에 적거나 `대비스, 오늘 일정 알려줘`라고 말하기 | 상시 중계가 받아 본체에 전달하고, 진행 단계·답·기록·결제 승인을 앱에 표시 | `desktop/` |
@@ -127,7 +129,7 @@ flowchart TD
 flowchart TD
     hermes["🧩 Hermes worker"] -- "MCP stdio" --> mcp["🔌 daevis MCP 서버<br/>허용 목록 · 공개 채널 · 승인 판단"]
     mcp --> r["📖 <b>읽기</b><br/>memory_search<br/>route_search · map_search<br/>web_search · web_fetch<br/>mail_list · mail_read<br/>schedule_list<br/>android_screen<br/>kakao_find_recipient<br/>n8n_list · device_nodes · device_jobs"]
-    mcp --> w["✍️ <b>쓰기 · 승인 필요</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me"]
+    mcp --> w["✍️ <b>쓰기 · 승인 필요</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_send_file · pc_save_file<br/>pc_system · pc_shell · run_code"]
     mcp --> c["🧭 <b>조합</b><br/>recipe_list · recipe_run<br/>plan_execute<br/><i>허용된 도구만 묶어서 실행</i>"]
 ```
 

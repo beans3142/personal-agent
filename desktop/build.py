@@ -21,13 +21,16 @@ def arguments(dist):
         '--collect-all', 'faster_whisper', '--collect-all', 'ctranslate2', '--collect-all', 'webview', '--collect-data', 'certifi',
         '--hidden-import', 'sounddevice', '--hidden-import', 'numpy', '--hidden-import', 'winsound', '--hidden-import', 'edge_tts',
         '--hidden-import', 'clr',
+        # Remote PC control: screenshots (Pillow), UI Automation (comtypes), Windows Search (pywin32).
+        '--hidden-import', 'PIL.ImageGrab', '--collect-submodules', 'comtypes', '--hidden-import', 'win32com.client',
+        '--hidden-import', 'pythoncom', '--hidden-import', 'pywintypes',
         '--collect-submodules', 'mcp.server', '--collect-submodules', 'mcp.shared', '--collect-submodules', 'mcp.client', '--hidden-import', 'desktop.mcp_server', '--hidden-import', 'desktop.cli',
     ] + [arg for name in EXCLUDE for arg in ('--exclude-module', name)]
 
 
 # Large packages a developer PC may have that the app never imports.
 EXCLUDE = ['torch', 'torchaudio', 'torchvision', 'tensorflow', 'transformers', 'pytest', 'matplotlib', 'pandas',
-           'scipy', 'IPython', 'jupyter', 'notebook', 'PIL', 'cv2', 'sklearn', 'playwright', 'discord']
+           'scipy', 'IPython', 'jupyter', 'notebook', 'cv2', 'sklearn', 'playwright', 'discord']
 
 
 def main():
