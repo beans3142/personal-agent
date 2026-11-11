@@ -45,7 +45,9 @@ class Segmenter:
 
     def feed(self, frame):
         level = float(np.sqrt(np.mean(np.square(frame))))
-        loud = level > max(0.004, self.floor * 4)  # USB mic at desk distance: speech ~0.005-0.03 RMS
+        # Relative to the room noise: this USB mic delivers speech at only ~0.002-0.01 RMS
+        # (Discord sounds fine only because it boosts the input automatically).
+        loud = level > max(0.0015, self.floor * 4)
         if not self.active:
             self.floor = 0.95 * self.floor + 0.05 * level
             self.pre = (self.pre + [frame])[-5:]
@@ -140,7 +142,17 @@ PROMPT = '카톡 보내줘, 전화 걸어줘, PC 꺼줘, 켜줘'
 MIN_COMMAND = 3  # Characters without spaces; "사고" or "켜줘" alone are not requests.
 
 
+def boost(audio, target=0.5, max_gain=40.0):
+    """Automatic gain like Discord's: quiet microphones become a normal level for Whisper."""
+    peak = float(np.abs(audio).max()) if len(audio) else 0.0
+    if peak <= 0:
+        return audio
+    gain = min(max_gain, target / peak)
+    return np.clip(audio * gain, -1.0, 1.0).astype(np.float32) if gain > 1 else audio
+
+
 def transcribe(model, audio, prompt=PROMPT):
+    audio = boost(audio)
     segments, _ = model.transcribe(audio, language='ko', beam_size=1, vad_filter=False,
                                    initial_prompt=prompt, condition_on_previous_text=False)
     # Drop segments Whisper itself rates as non-speech or low confidence.

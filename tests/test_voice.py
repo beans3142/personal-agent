@@ -247,3 +247,22 @@ def test_hint_words_alone_are_treated_as_echo():
     voice = client()
     assert voice.echoes_prompt('카톡 보내줘, 켜줘') and voice.echoes_prompt('대비스, 카톡 보내줘, 켜줘')
     assert not voice.echoes_prompt('대비스, 엄마에게 카톡 보내줘')
+
+
+def test_quiet_microphone_is_boosted_but_never_clipped_beyond_range():
+    voice = client()
+    quiet = np.sin(np.linspace(0, 200, 16000)).astype(np.float32) * 0.01
+    loud = voice.boost(quiet)
+    assert abs(float(np.abs(loud).max()) - 0.4) < 0.01  # 40x cap on a 0.01 peak
+    normal = np.full(100, 0.6, np.float32)
+    assert voice.boost(normal) is normal
+    assert voice.boost(np.zeros(10, np.float32)).max() == 0
+
+
+def test_quiet_speech_above_room_noise_is_still_segmented():
+    voice = client()
+    seg = voice.Segmenter(rate=16000, frame=480)
+    room, speech = np.zeros(480, np.float32) + 0.0004, np.full(480, 0.004, np.float32)
+    frames = [room] * 40 + [speech] * 40 + [room] * 40
+    done = [u for f in frames if (u := seg.feed(f)) is not None]
+    assert len(done) == 1
