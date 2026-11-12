@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import hashlib
 import os
 from pathlib import Path
 import signal
@@ -30,6 +31,8 @@ class HermesResult:
     stop_reason: str | None = None
     resets_at: int | None = None
     fallback: str | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
     def footer(self, elapsed):
         def count(n): return f"{n/1000:.1f}k" if n >= 1000 else str(n)
@@ -62,6 +65,18 @@ def reset_label(epoch):
     return f"{when.month}/{when.day} {when:%H:%M}"
 
 
+def prompt_cache_scope(env, public, owner_request, chat_scope):
+    """Opaque input-cache identity, never a conversation history or permission cache."""
+    if not chat_scope:
+        return None
+    scope = [env.get('OWNER_ID', ''), chat_scope, bool(public), bool(owner_request),
+             env.get('DAEVIS_HERMES_PROVIDER', 'openai-codex'),
+             env.get('DAEVIS_CLAUDE_MODEL') if env.get('DAEVIS_HERMES_PROVIDER') == 'anthropic' else env.get('AGENT_MODEL', ''),
+             sorted(set(env.get('DAEVIS_MCP_ALLOW_TOOLS', '').split(','))),
+             env.get('DAEVIS_MCP_APPROVAL', 'deny')]
+    return 'daevis-' + hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
+
+
 def parse_events(raw: str) -> HermesResult:
     kakao = False
     final = None
@@ -76,6 +91,8 @@ def parse_events(raw: str) -> HermesResult:
         value=final.get(key)
         return value if isinstance(value,int) and not isinstance(value,bool) and value >= 0 else None
     outcome=HermesResult(str(final.get("text") or ""), kakao, integer("input_tokens"), integer("output_tokens"), integer("model_calls"), integer("tool_calls") or 0, str(final.get("model") or "미제공"), final.get("receipts") if isinstance(final.get("receipts"),list) else [])
+    outcome.cache_read_tokens = integer('cache_read_tokens')
+    outcome.cache_write_tokens = integer('cache_write_tokens')
     if final.get("completed") is not True:
         outcome.text=""
         reason=final.get('stop_reason')
@@ -151,6 +168,9 @@ class HermesRunner:
         self.python, self.worker, self.data = python, worker, Path(data)
         self.env = dict(os.environ if env is None else env)
         self.execute = run
+        if run is run_process and self.env.get('DAEVIS_PREPARED_WORKER') == 'on':
+            from .warm_worker import PreparedExecutor
+            self.execute = PreparedExecutor([python, worker], env=self.env)
         self.claude_token = claude_token
 
     def run(self, text, instructions, history, public=False, owner_request=True,chat_scope=None):
@@ -191,6 +211,8 @@ class HermesRunner:
                "DAEVIS_MCP_REQUEST_EXPIRES": str(time.time()+305)}
         env['AGENT_OUTBOX']=str(current_outbox(self.data/'outbox'))
         payload = {"text":text, "instructions":instructions, "history":history[-12:]}
+        if self.env.get('DAEVIS_PROMPT_CACHE') == 'on':
+            payload['cache_scope'] = prompt_cache_scope(env, public, owner_request, chat_scope)
         try:
             output = self.execute([self.python,self.worker], input=json.dumps(payload,ensure_ascii=False),
                                   text=True, encoding="utf-8", env=env, timeout=310, start_new_session=True)

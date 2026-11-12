@@ -8,6 +8,11 @@ import sys
 import time
 
 protocol = sys.stdout
+prepared = '--prepared' in sys.argv
+startup_probe = '--startup-probe' in sys.argv
+if prepared:
+    from setproctitle import setproctitle
+    setproctitle('daevis-prepared (idle)')
 sys.argv[0] = str(Path(__file__).resolve())
 def emit(value):
     print(json.dumps(value, ensure_ascii=False), file=protocol, flush=True)
@@ -116,10 +121,21 @@ def main():
         # Hermes may re-exec this script while importing, so read the provider
         # settings only afterwards, then drop the Claude token before MCP starts.
         from run_agent import AIAgent
-        provider_env={k:os.environ.pop(k) for k in ('DAEVIS_HERMES_PROVIDER','DAEVIS_CLAUDE_TOKEN','DAEVIS_CLAUDE_MODEL') if k in os.environ}
         from hermes_cli.auth_codex import resolve_codex_runtime_credentials
         from tools.mcp_tool_discovery import register_mcp_servers
+        if prepared:
+            emit({'type':'prepared'})
         payload = json.load(sys.stdin)
+        if prepared:
+            request_env = payload.pop('_prepared_env')
+            if not isinstance(request_env,dict) or not all(isinstance(k,str) and isinstance(v,str) for k,v in request_env.items()):
+                raise ValueError('invalid prepared request environment')
+            os.environ.clear();os.environ.update(request_env)
+            setproctitle('hermes-worker.py (prepared active)')
+        if startup_probe:
+            emit({'type':'probe','request_id':os.environ.get('DAEVIS_MCP_REQUEST_ID','')})
+            return
+        provider_env={k:os.environ.pop(k) for k in ('DAEVIS_HERMES_PROVIDER','DAEVIS_CLAUDE_TOKEN','DAEVIS_CLAUDE_MODEL') if k in os.environ}
         forwarded = forwarded_env(os.environ)
         discovered = register_mcp_servers({'daevis':{'command':'bash','args':[str(project/'deploy/run-mcp.sh')],
             'timeout':260,'connect_timeout':30,'supports_parallel_tool_calls':False,'env':forwarded}})
@@ -130,6 +146,7 @@ def main():
         agent = AIAgent(**settings, enabled_toolsets=['mcp-daevis'],
                         max_iterations=MAX_ITERATIONS, max_tokens=1500, run_budget_seconds=270,
                         quiet_mode=True, skip_context_files=True, skip_memory=True,
+                        gateway_session_key=payload.get('cache_scope'),
                         skip_background_review=True, load_soul_identity=False,
                         save_trajectories=False, tool_complete_callback=complete,step_callback=step)
         active[0]=agent
@@ -140,6 +157,8 @@ def main():
           'text':response.get('final_response',''),'kakao_used':kakao[0],
           'input_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_input_tokens',None),
           'output_tokens':None if reason in ('usage_limit_reached','model_auth_failed','model_rate_limited') else getattr(agent,'session_output_tokens',None),
+          'cache_read_tokens':getattr(agent,'session_cache_read_tokens',None),
+          'cache_write_tokens':getattr(agent,'session_cache_write_tokens',None),
           'model_calls':response.get('api_calls'),'tool_calls':calls[0],
           'model':str(getattr(agent,'model','미제공'))+' (설정)','receipts':receipts,
           'provider':settings['provider'],'resets_at':limit_reset_at(response) if reason=='usage_limit_reached' else None})

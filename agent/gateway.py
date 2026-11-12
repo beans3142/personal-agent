@@ -248,6 +248,11 @@ class Gateway(discord.Client):
         if self.android:
             self.android.approve = approve
         try:
+            from .simple_reply import simple_reply
+            direct_answer = simple_reply(text)
+            if direct_answer:
+                history.extend([{'role': 'user', 'content': text}, {'role': 'assistant', 'content': direct_answer}])
+                return direct_answer + '\n\n' + metrics.footer(time.monotonic() - started) + ' · 방식 프로그램'
             kb_request=re.fullmatch(r'(?i)(?:KB|지식베이스)\s*검색\s+(.+)',text.strip())
             if kb_request:
                 from .knowledge_base import KnowledgeBase

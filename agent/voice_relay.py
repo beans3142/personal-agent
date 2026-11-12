@@ -37,6 +37,11 @@ class Recorder:
 
 
 async def _run_rule(bot, recorder, message, text):
+    from .simple_reply import simple_reply
+    answer = simple_reply(text)
+    if answer:
+        await recorder.send(answer)
+        return True
     phone = parse_phone_command(text)
     if phone:
         await bot.handle_phone(message, *phone)

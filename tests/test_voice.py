@@ -338,3 +338,13 @@ def test_agent_poller_uses_long_poll_when_requested():
         pytest.fail('no job to answer')
     assert asyncio.run(poll_once(post, answer, 'agent-main', wait=20)) is False
     assert posts == [('/agent/poll', {'node': 'agent-main', 'wait': 20})]
+
+
+def test_time_request_is_answered_on_relay_without_booting_main(monkeypatch):
+    from agent.voice_relay import _run_rule
+    monkeypatch.setenv('DAEVIS_SIMPLE_REPLIES', 'on')
+    recorder = SimpleNamespace(send=AsyncMock())
+    bot = SimpleNamespace(handle=AsyncMock(side_effect=AssertionError('no power action')))
+    assert asyncio.run(_run_rule(bot, recorder, None, '지금 몇시야?')) is True
+    assert '한국 시간' in recorder.send.await_args.args[0]
+    bot.handle.assert_not_awaited()

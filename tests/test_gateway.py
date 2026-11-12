@@ -394,3 +394,15 @@ def test_files_from_pc_and_code_runs_are_sent_and_removed(tmp_path, monkeypatch)
     assert [k["content"] for k in sent if "file" in k] == ["📎 발표.pptx"]
     assert any("huge.bin" in (call.args[0] if call.args else call.kwargs.get("content", "")) for call in channel.send.await_args_list)
     assert not list(files.iterdir())
+
+
+def test_time_question_bypasses_engine_and_keeps_history(tmp_path, monkeypatch):
+    from agent.memory import Memory
+    from agent.gateway import Gateway
+    monkeypatch.setenv('DAEVIS_SIMPLE_REPLIES', 'on')
+    memory = Memory(tmp_path / 'memory.db')
+    fake = SimpleNamespace(memory=memory, android=None,
+                           engine=SimpleNamespace(run=lambda *a, **kw: pytest.fail('model must not run')))
+    reply = Gateway.turn(fake, 'test-owner', '지금 몇 시야?', lambda *a: False)
+    assert '한국 시간' in reply and '모델 호출 0회' in reply
+    assert memory.load_history('test-owner')[-1]['role'] == 'assistant'

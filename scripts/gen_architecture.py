@@ -120,7 +120,7 @@ node(485, 192, 'si', 'python', '전원 봇', 'power_bot.py')
 # main pipeline
 node(410, 440, 'si', 'python', 'Discord 게이트웨이', 'hermes_gateway.py')
 node(575, 440, 'lu', 'split', '코드 관문', '소유자 · 전원 · 고정 문장')
-node(745, 440, 'png', 'nous', 'Hermes Agent', '요청마다 격리 worker')
+node(745, 440, 'png', 'nous', 'Hermes Agent', '격리 worker · 사전 준비 1개')
 node(915, 440, 'lu', 'plug', 'daevis MCP 서버', 'stdio · 허용 목록')
 
 # under gateway
@@ -128,7 +128,7 @@ node(410, 600, 'lu', 'clock', '예약 루프', 'schedule.json')
 node(410, 730, 'lu', 'activity', '상태 점검', '60초 · n8n · Android · 메모리')
 node(410, 860, 'lu', 'power', '유휴 자동 종료', '요청 없으면 서버 끔')
 # under gate / hermes / mcp
-node(575, 650, 'lu', 'route', '고정 문장 직접 실행', '카톡 · 경로 · 모델 0회')
+node(575, 650, 'lu', 'route', '고정 문장 직접 실행', '시간·날짜 · 카톡 · 경로 · 모델 0회')
 node(745, 600, 'lu', 'shield', '반복 제한', '12회 · 120초 · 토큰 6만\n같은 오류 3회면 중단')
 node(745, 780, 'si', 'langchain', 'LangGraph', '도입 예정 · 코드 없음', dashed=True)
 node(915, 650, 'lu', 'key', '쓰기 승인', '소유자 DM 승인 · 거절')

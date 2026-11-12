@@ -22,6 +22,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | 📍 | 장소 검색 | `판교 근처 24시 카페 찾아줘` | 모델 | `map_search` |
 | <img src="https://cdn.simpleicons.org/naver" width="20"> | 네이버 메일 읽기 | `안 읽은 메일 요약해줘` | 모델 | `mail_list` `mail_read` |
 | ⏰ | 알림·반복 예약 | `10분 뒤에 빨래 꺼내라고 알려줘` | 모델, 실행은 예약 루프 | `schedule_*` |
+| 🕒 | 시간·날짜·요일 | `지금 몇 시야?` | 정확히 일치하는 단순 질문은 모델 없이 한국 시각으로 답변 | `simple_reply` |
 | 🧠 | 기억 | `주차 B2 37번이라고 기억해` | 모델 | `memory_*` |
 | 🌐 | 웹 검색·읽기 | `이 링크 세 줄로 요약해줘` | 모델 | `web_search` `web_fetch` |
 | <img src="https://cdn.simpleicons.org/android" width="20"> | 앱 화면 조작 | `배민 열어서 최근 주문 보여줘` | 모델이 화면을 보고 한 단계씩 | `android_*` |
@@ -52,7 +53,7 @@ flowchart LR
     subgraph agent["Agent 서버 · t4g.medium"]
         direction TB
         gw["💬 Discord 게이트웨이<br/>hermes_gateway.py"]
-        worker["🧩 Hermes worker<br/>요청마다 새 프로세스"]
+        worker["🧩 Hermes worker<br/>요청마다 격리 · 사전 준비 1개"]
         mcp["🔌 daevis MCP 서버<br/>mcp_server.py · stdio"]
         subgraph backends["MCP 뒤에 붙은 것"]
             direction LR
@@ -78,7 +79,7 @@ flowchart LR
 | 구성 요소 | 파일 | 하는 일 |
 | --- | --- | --- |
 | Discord 게이트웨이 | `agent/hermes_gateway.py` `agent/gateway.py` | 소유자 확인, 코드 경로 분기, 답장과 결과 표시, 예약 실행, 60초 상태 점검 |
-| Hermes worker | `agent/hermes_runner.py` `deploy/hermes-worker.py` | 요청마다 격리된 프로세스로 Hermes를 띄워 모델과 도구를 반복 호출 |
+| Hermes worker | `agent/hermes_runner.py` `deploy/hermes-worker.py` | 모듈을 읽은 프로세스 1개를 미리 준비하고, 새 요청 권한을 주입해 한 번 사용 후 종료. MCP 연결은 요청마다 새로 생성 |
 | 반복 제한 | `deploy/hermes_policy.py` | 입력 토큰 6만 초과, 같은 오류 3회 반복, 소유자 거절 시 즉시 멈춤 |
 | MCP 서버 | `agent/mcp_server.py` `deploy/run-mcp.sh` | 도구 목록 공개 범위와 승인 판단, 실제 도구 실행 |
 | 전원 봇 | `agent/power_bot.py` `agent/power.py` | 정확한 전원 문구만 받아 EC2를 켜고 끔 |
@@ -169,3 +170,5 @@ python -m pytest tests -q
 - 웹 도구는 사설 주소와 클라우드 메타데이터 주소에 접속하지 않는다.
 
 음성 요청의 본체 전달은 /agent/poll long-poll을 사용한다. 기존 2초 조회 대기를 없앤 변경이며, 전체 응답 시간과 구분한 비교 시험은 python scripts/benchmark_agent_delivery.py --trials 8로 실행한다.
+
+속도 A/B 설정: `DAEVIS_SIMPLE_REPLIES=on`(정형 질문), `DAEVIS_PREPARED_WORKER=on`(단일 사용 실행부 사전 준비), `DAEVIS_PROMPT_CACHE=off`(안정 캐시 키 실험은 효과 미확인으로 비활성). 사전 준비에는 Hermes가 실제 사용하는 인터프리터의 `deploy/hermes-prepared-requirements.txt` 의존성이 필요하다. 미리 준비하지 못하면 요청 전달 전에 기존 실행 방식으로 돌아가며, 실행을 시작한 요청은 재시도하지 않는다. 비교 방법과 한계는 [속도 A/B 기록](docs/worklogs/2026-11-13-speed-ab.md)에 있다.
