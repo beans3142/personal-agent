@@ -49,3 +49,5 @@ GitHub 서버가 SVG를 처리한 이후의 모든 브라우저·폰트 조합�
 - [배치 검사 결과](assets/2026-11-13-architecture/layout-check.json)
 - 재현: `python scripts/gen_architecture.py docs/architecture.svg`
 - 확인: `python scripts/check_architecture.py --output-dir <미리보기 폴더>`
+
+- 그림·생성 스크립트 커밋: 921a15c
