@@ -18,6 +18,31 @@ from .android_control import AndroidControl
 from .kakao_targets import KakaoTargets
 
 PREFIX = "com.kakao.talk:id/"
+DIRECT_PENDING_SECONDS = 120
+
+
+def expire_direct_pending(journal, now=None):
+    """End an abandoned send without retrying it or forgetting its request hash.
+
+    Caller holds the direct-send lock (or has verified no worker is running).
+    Legacy journals have no timestamp, so their file mtime is the start time.
+    """
+    journal = Path(journal)
+    previous = json.loads(journal.read_text()) if journal.exists() else {}
+    if previous.get('status') != 'pending':
+        return previous
+    started = previous.get('started_at', journal.stat().st_mtime)
+    if (time.time() if now is None else now) - started < DIRECT_PENDING_SECONDS:
+        return previous
+    completed = previous.get('completed', [])
+    if previous.get('request_hash'):
+        completed = list(dict.fromkeys(completed + [previous['request_hash']]))[-256:]
+    previous = {**previous, 'status': 'expired_uncertain', 'completed': completed}
+    temporary = journal.with_suffix('.tmp')
+    temporary.write_text(json.dumps(previous))
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, journal)
+    return previous
 
 
 class KakaoRecipientUnavailable(ValueError):
@@ -355,7 +380,7 @@ class KakaoWatcher:
             raise KakaoSendBlocked('previous direct send locked; outcome uncertain') from None
         os.close(fd)
         try:
-            previous = json.loads(journal.read_text()) if journal.exists() else {}
+            previous = expire_direct_pending(journal)
             if previous.get('status') == 'pending':
                 raise KakaoSendBlocked('previous direct send uncertain; owner review required')
             digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, text, room_type, mention], ensure_ascii=False).encode()).hexdigest()
@@ -383,7 +408,7 @@ class KakaoWatcher:
             def record(status):
                 temp = journal.with_suffix('.tmp')
                 with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as stream:
-                    json.dump({'status': status, 'request_hash': digest, 'completed': completed + ([digest] if status == 'succeeded' else [])}, stream)
+                    json.dump({'status': status, 'started_at': time.time(), 'request_hash': digest, 'completed': completed + ([digest] if status == 'succeeded' else [])}, stream)
                     stream.flush(); os.fsync(stream.fileno())
                 temp.replace(journal)
             record('pending')

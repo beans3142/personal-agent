@@ -368,3 +368,36 @@ def test_exact_candidates_are_not_announced_as_needing_confirmation(tmp_path, mo
     find = build_kakao_send_tools(None, tmp_path, notify_candidates=notices.append)[1]
     find.run({'query': '반수의 신'})
     assert notices == []
+
+
+def test_old_uncertain_send_expires_without_blocking_new_request(tmp_path):
+    import os, time, json
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    journal = tmp_path / 'kakao-direct-send.json'
+    journal.write_text(json.dumps({'status': 'pending', 'request_hash': 'old', 'completed': []}))
+    os.utime(journal, (time.time() - 7200,) * 2)
+    watch.search_chat = lambda _: None
+    sent = []
+    watch.send_text = lambda *a, **kw: sent.append(1)
+    watch.send_once('person', 'new request', request_id='new')
+    assert sent == [1]
+    assert 'old' in json.loads(journal.read_text())['completed']
+
+
+def test_expired_uncertain_request_is_never_replayed(tmp_path):
+    import os, time, json
+    watch = KakaoWatcher(None, tmp_path / 'watch.json')
+    watch.search_chat = lambda _: None
+    def fail(*a, **kw): raise RuntimeError('uncertain')
+    watch.send_text = fail
+    with pytest.raises(RuntimeError):
+        watch.send_once('person', 'hello', request_id='same')
+    journal = tmp_path / 'kakao-direct-send.json'
+    previous = json.loads(journal.read_text())
+    previous['started_at'] = time.time() - 7200
+    journal.write_text(json.dumps(previous))
+    os.utime(journal, (time.time() - 7200,) * 2)
+    watch.send_text = lambda *a, **kw: pytest.fail('must not resend old request')
+    with pytest.raises(ValueError, match='already'):
+        watch.send_once('person', 'hello', request_id='same')
+    assert json.loads(journal.read_text())['status'] == 'expired_uncertain'
