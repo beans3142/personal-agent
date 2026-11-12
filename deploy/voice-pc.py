@@ -49,7 +49,10 @@ class Segmenter:
         # (Discord sounds fine only because it boosts the input automatically).
         loud = level > max(0.0015, self.floor * 4)
         if not self.active:
-            self.floor = 0.95 * self.floor + 0.05 * level
+            # Learn the background only near its current level. A quiet, gradual
+            # speech onset must not raise its own detection threshold forever.
+            if level <= self.floor * 1.5:
+                self.floor = 0.95 * self.floor + 0.05 * level
             self.pre = (self.pre + [frame])[-5:]
             if loud:
                 self.active, self.frames, self.quiet = True, list(self.pre), 0

@@ -137,8 +137,11 @@ def main():
         listen = Listening()
 
         def make_listener():
+            def event(value):
+                if value.get('kind') == 'voice_diagnostic':
+                    log('voice: ' + json.dumps(value))
             return core.Listener(lambda text: controller.request(text, 'voice'),
-                                 lambda text: log('status: ' + text), listen)
+                                 lambda text: log('status: ' + text), listen, on_event=event)
         supervise(make_listener)
     except Exception:
         log('agent crashed\n' + traceback.format_exc())

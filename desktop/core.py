@@ -163,7 +163,13 @@ class Listener(threading.Thread):
                     utterance = segmenter.feed(frames.get())
                     if utterance is None:
                         continue
+                    started = time.monotonic()
                     command = voice.wake_command(model, utterance)
+                    self.on_event({'kind': 'voice_diagnostic',
+                                   'seconds': round(len(utterance) / voice.RATE, 2),
+                                   'peak': round(float(np.max(np.abs(utterance))), 5),
+                                   'recognition_seconds': round(time.monotonic() - started, 2),
+                                   'wake': command is not None})
                     if command is None:
                         continue
                     voice.beep()

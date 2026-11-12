@@ -288,3 +288,18 @@ def test_voice_turn_adds_download_links_for_files_to_the_app_receipt(tmp_path):
     assert shared == ['발표.html'] and gateway.send_outbox.await_count == 1
     assert result['text'].endswith('📎 발표.html: https://relay.example/share/' + 'a' * 43)
     assert len(json.dumps(result, ensure_ascii=False)) <= RESULT_LIMIT
+
+
+def test_gradual_quiet_speech_is_not_learned_as_room_noise():
+    voice = client()
+    seg = voice.Segmenter()
+    levels = [.0004] * 40 + list(np.linspace(.0004, .004, 30)) + [.004] * 40 + [.0004] * 40
+    utterances = [u for level in levels if (u := seg.feed(np.full(480, level, np.float32))) is not None]
+    assert len(utterances) == 1
+    assert len(utterances[0]) / 16000 > 1
+
+
+def test_steady_low_room_noise_never_starts_an_utterance():
+    voice = client()
+    seg = voice.Segmenter()
+    assert all(seg.feed(np.full(480, .0006, np.float32)) is None for _ in range(500))
