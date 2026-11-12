@@ -12,6 +12,8 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 
 ![대비스 아키텍처](docs/architecture.svg)
 
+[전체 구성과 요청 흐름](#전체-구성) · [예전 설계 판단 HTML 문서 — 2026-11-04 기준](docs/notes/architecture.html)
+
 ## 할 수 있는 일
 
 | | 기능 | 이렇게 말한다 | 처리 방식 | 쓰는 도구 |

@@ -1,0 +1,20 @@
+{"id": "q1", "type": "simple", "text": "광합성이 뭐야? 한 문장으로", "expect_tools": []}
+{"id": "q2", "type": "simple", "text": "파이썬에서 리스트 뒤집는 방법 알려줘", "expect_tools": []}
+{"id": "q3", "type": "simple", "text": "1달러는 몇 센트야?", "expect_tools": []}
+{"id": "q4", "type": "simple", "text": "광합성이 뭔지 한 문장으로 알려줘", "expect_tools": [], "duplicate_of": "q1"}
+{"id": "c1", "type": "command", "text": "10분 뒤에 빨래 꺼내라고 알려줘", "expect_tools": ["schedule_add"]}
+{"id": "c2", "type": "command", "text": "예약 목록 보여줘", "expect_tools": ["schedule_list"]}
+{"id": "c3", "type": "command", "text": "30분 뒤에 물 마시라고 알려줘", "expect_tools": ["schedule_add"]}
+{"id": "c4", "type": "command", "text": "내 테스트 단어는 파란토끼라고 기억해", "expect_tools": ["memory_save"]}
+{"id": "t1", "type": "single_tool", "text": "행신역에서 선릉역 가는 경로 알려줘", "expect_tools": ["route_search"]}
+{"id": "t2", "type": "single_tool", "text": "강남역 근처 카페 찾아줘", "expect_tools": ["map_search"]}
+{"id": "t3", "type": "single_tool", "text": "받은 메일 최근 5개 보여줘", "expect_tools": ["mail_list"]}
+{"id": "t4", "type": "single_tool", "text": "서울역에서 판교역 가는 길", "expect_tools": ["route_search"]}
+{"id": "t5", "type": "single_tool", "text": "오늘 서울 날씨 검색해줘", "expect_tools": ["web_search"]}
+{"id": "m1", "type": "multi_step", "text": "내일 오전 11시에 행신역에서 선릉역 가는 경로 찾고, 출발 30분 전에 알림 맞춰줘", "expect_tools": ["route_search", "schedule_add"]}
+{"id": "m2", "type": "multi_step", "text": "강남역 근처 카페 찾아서 제일 위 가게 이름을 기억해 둬", "expect_tools": ["map_search", "memory_save"]}
+{"id": "m3", "type": "multi_step", "text": "최근 메일 중 첫 번째 메일 내용 읽고 한 줄로 요약해줘", "expect_tools": ["mail_list", "mail_read"]}
+{"id": "m4", "type": "multi_step", "text": "판교 맛집 웹에서 찾아보고 1시간 뒤에 점심 먹으라고 알려줘", "expect_tools": ["web_search", "schedule_add"]}
+{"id": "a1", "type": "app", "text": "카톡 나와의 채팅에 '우유 사기' 메모 보내줘", "expect_tools": ["android_open", "android_input"]}
+{"id": "a2", "type": "app", "text": "카톡 열어서 화면에 뭐 있는지 알려줘", "expect_tools": ["android_open", "android_screen"]}
+{"id": "a3", "type": "app", "text": "배민 열어줘", "expect_tools": ["android_open"]}

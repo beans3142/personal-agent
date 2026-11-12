@@ -34,3 +34,4 @@ scripts/private/
 # Local app builds
 /build/
 /dist/
+_workspace/
