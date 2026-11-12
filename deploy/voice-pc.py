@@ -37,10 +37,11 @@ def after_wake(text):
 
 class Segmenter:
     """Energy-based utterance cutter with an adaptive noise floor."""
-    def __init__(self, rate=RATE, frame=FRAME, silence=0.6, max_seconds=15):
+    def __init__(self, rate=RATE, frame=FRAME, silence=0.8, max_seconds=15):
         self.frame_seconds = frame / rate
         self.end_frames = int(silence / self.frame_seconds)
         self.max_frames = int(max_seconds / self.frame_seconds)
+        self.pre_frames = max(1, int(0.36 / self.frame_seconds))
         self.floor, self.frames, self.quiet, self.active, self.pre = 0.002, [], 0, False, []
 
     def feed(self, frame):
@@ -53,7 +54,7 @@ class Segmenter:
             # speech onset must not raise its own detection threshold forever.
             if level <= self.floor * 1.5:
                 self.floor = 0.95 * self.floor + 0.05 * level
-            self.pre = (self.pre + [frame])[-5:]
+            self.pre = (self.pre + [frame])[-self.pre_frames:]
             if loud:
                 self.active, self.frames, self.quiet = True, list(self.pre), 0
             return None

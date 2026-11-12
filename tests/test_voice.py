@@ -303,3 +303,26 @@ def test_steady_low_room_noise_never_starts_an_utterance():
     voice = client()
     seg = voice.Segmenter()
     assert all(seg.feed(np.full(480, .0006, np.float32)) is None for _ in range(500))
+
+
+def test_segmenter_keeps_quiet_leading_syllable_before_trigger():
+    voice = client()
+    seg = voice.Segmenter()
+    frames = [np.full(480, .0004, np.float32)] * 40
+    # A 240ms quiet first syllable, then the louder remainder of the wake word.
+    frames += [np.full(480, .0012, np.float32)] * 8
+    frames += [np.full(480, .03, np.float32)] * 20
+    frames += [np.full(480, .0004, np.float32)] * 40
+    result = [u for f in frames if (u := seg.feed(f)) is not None]
+    assert len(result) == 1
+    assert np.count_nonzero(np.isclose(result[0], .0012)) == 8 * 480
+
+
+def test_segmenter_keeps_a_short_pause_inside_one_request():
+    voice = client()
+    seg = voice.Segmenter()
+    room = np.full(480, .0004, np.float32)
+    speech = np.full(480, .03, np.float32)
+    frames = [room] * 40 + [speech] * 20 + [room] * 22 + [speech] * 30 + [room] * 40
+    result = [u for f in frames if (u := seg.feed(f)) is not None]
+    assert len(result) == 1
