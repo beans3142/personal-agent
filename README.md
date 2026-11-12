@@ -36,7 +36,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | 📱 | Galaxy 앱에서 묻기 | 앱에 적거나 마이크를 누르고 말하기, 디지털 어시스턴트 제스처·빠른 설정 타일로 바로 부르기 | PC 앱과 같은 화면, 같은 대화 기록. 폰의 한국어 TTS로 답을 읽고, 앱을 안 보고 있으면 알림 | `android/` |
 | 🖥️ | PC 앱에서 묻기 | 앱 입력창에 적거나 `대비스, 오늘 일정 알려줘`라고 말하기 | 상시 중계가 받아 본체에 전달하고, 진행 단계·답·기록·결제 승인을 앱에 표시 | `desktop/` |
 
-카톡 전송과 길찾기처럼 문장 형태가 정해진 요청은 모델을 부르지 않는다. 오프라인 측정에서 이 방식과 도구 묶음 고르기를 합쳐 요청 20개 기준 모델 입력 토큰이 80% 줄었다.
+카톡 전송과 길찾기처럼 문장 형태가 정해진 요청은 모델을 부르지 않는다.
 
 ## 전체 구성
 
@@ -147,21 +147,7 @@ Android 화면 이동(열기, 누르기, 입력, 넘기기)은 소유자가 지�
 
 ## 실행
 
-Python 3.12, Ubuntu 서버 기준이다.
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m agent.login
-```
-
-`.env`에 `DISCORD_BOT_TOKEN`, `OWNER_ID`, `HERMES_PYTHON`을 넣고 `deploy/personal-agent-hermes.service`로 실행한다. Hermes 쪽 MCP 설정 예시는 `deploy/mcp-hermes.example.yaml`에 있다. 전원 봇은 별도 상시 서버에서 `python -m agent.power_bot`으로 돌리고, 토큰과 소유자 ID는 AWS Parameter Store에서 읽는다.
-
-테스트:
-
-```bash
-python -m pytest tests -q
-```
+[설치와 설정 안내](docs/setup.md)에서 환경 준비, 서비스 실행, 테스트 방법을 확인할 수 있다.
 
 ## 보안
 
@@ -170,7 +156,3 @@ python -m pytest tests -q
 - 로그인은 저장된 세션을 먼저 쓴다. 계정 정보는 서버 `.env`에만 있고, 휴대폰 본인 인증과 계정 보호조치 해제는 사람이 직접 한다.
 - MCP 서버는 stdio로만 연결되고 외부 포트를 열지 않는다. 브라우저 디버깅 포트와 n8n은 `127.0.0.1`에만 묶여 있다.
 - 웹 도구는 사설 주소와 클라우드 메타데이터 주소에 접속하지 않는다.
-
-음성 요청의 본체 전달은 /agent/poll long-poll을 사용한다. 기존 2초 조회 대기를 없앤 변경이며, 전체 응답 시간과 구분한 비교 시험은 python scripts/benchmark_agent_delivery.py --trials 8로 실행한다.
-
-속도 A/B 설정: `DAEVIS_SIMPLE_REPLIES=on`(정형 질문), `DAEVIS_PREPARED_WORKER=on`(단일 사용 실행부 사전 준비), `DAEVIS_PROMPT_CACHE=off`(안정 캐시 키 실험은 효과 미확인으로 비활성). 사전 준비에는 Hermes가 실제 사용하는 인터프리터의 `deploy/hermes-prepared-requirements.txt` 의존성이 필요하다. 미리 준비하지 못하면 요청 전달 전에 기존 실행 방식으로 돌아가며, 실행을 시작한 요청은 재시도하지 않는다. 비교 방법과 한계는 [속도 A/B 기록](docs/worklogs/2026-11-13-speed-ab.md)에 있다.
