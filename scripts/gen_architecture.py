@@ -59,150 +59,174 @@ def icon(kind, name, x, y, s):
     return {'si': si, 'lu': lu, 'png': png}[kind](name, x, y, s)
 
 
-E = []  # elements
-def esc(t): return t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+# Overview diagram: component boundaries first; tool names live in README's MCP map.
+from html import escape
+
+W, H = 1600, 1300
+LAYERS = {name: [] for name in ('base', 'edges', 'nodes', 'labels')}
+INK, MUTED, BLUE, TEAL = '#14263d', '#62748a', '#3068c8', '#087f8c'
 
 
-def node(cx, cy, kind, name, label, sub='', dashed=False, tile=58, isz=36):
-    t = tile
-    dash = ' stroke-dasharray="5 4"' if dashed else ''
-    E.append(f'<rect x="{cx-t/2}" y="{cy-t/2}" width="{t}" height="{t}" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="1.4"{dash}/>')
-    E.append(icon(kind, name, cx - isz/2, cy - isz/2, isz))
-    E.append(f'<text x="{cx}" y="{cy+t/2+18}" class="lb" text-anchor="middle">{esc(label)}</text>')
-    for i, line in enumerate(sub.split('\n') if sub else []):
-        E.append(f'<text x="{cx}" y="{cy+t/2+34+i*14}" class="sb" text-anchor="middle">{esc(line)}</text>')
+def put(layer, markup):
+    LAYERS[layer].append(markup)
 
 
-def row(cx, cy, kind, name, label, sub):
-    E.append(f'<rect x="{cx-20}" y="{cy-20}" width="40" height="40" rx="9" fill="#fff" stroke="#cbd5e1" stroke-width="1.3"/>')
-    E.append(icon(kind, name, cx-13, cy-13, 26))
-    E.append(f'<text x="{cx+30}" y="{cy-3}" class="lb">{esc(label)}</text>')
-    E.append(f'<text x="{cx+30}" y="{cy+13}" class="mono">{esc(sub)}</text>')
+def text(x, y, value, size=15, fill=INK, weight=400, layer='labels', **attrs):
+    extra = ' '.join(f'{k.replace("_", "-")}="{escape(str(v), quote=True)}"' for k, v in attrs.items())
+    put(layer, f'<text x="{x}" y="{y}" font-size="{size}" font-weight="{weight}" fill="{fill}" {extra}>{escape(value)}</text>')
 
 
-def line(pts, label=None, lx=None, ly=None, dashed=False, both=False, color='#111827', anchor='middle'):
-    d = 'M' + ' L'.join(f'{x},{y}' for x, y in pts)
-    dash = ' stroke-dasharray="6 5"' if dashed else ''
-    start = ' marker-start="url(#arrS)"' if both else ''
-    E.append(f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.6"{dash}{start} marker-end="url(#arr)"/>')
-    if label:
-        w = len(label) * 11 + 10
-        x0 = lx - w/2 if anchor == 'middle' else lx - 4
-        E.append(f'<rect x="{x0}" y="{ly-12}" width="{w}" height="17" rx="3" fill="#fff"/>')
-        E.append(f'<text x="{lx}" y="{ly+1}" class="el" text-anchor="{anchor}">{esc(label)}</text>')
+def rect(layer, x, y, w, h, fill='white', stroke='#dce4ee', radius=16, **attrs):
+    extra = ' '.join(f'{k.replace("_", "-")}="{escape(str(v), quote=True)}"' for k, v in attrs.items())
+    put(layer, f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{radius}" fill="{fill}" stroke="{stroke}" {extra}/>')
 
 
-def box(x, y, w, h, title, kind=None, name=None, style='4 4', stroke='#64748b'):
-    E.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="16" fill="#f8fafc" stroke="{stroke}" stroke-width="1.5" stroke-dasharray="{style}"/>')
-    tx = x + 16
-    if kind:
-        E.append(icon(kind, name, x+14, y+10, 20)); tx = x + 42
-    E.append(f'<text x="{tx}" y="{y+26}" class="bt">{esc(title)}</text>')
+def badge(x, y, label, width, fill='#eaf1ff', color=BLUE):
+    rect('nodes', x, y, width, 26, fill, 'none', 13)
+    text(x + width / 2, y + 18, label, 12, color, 600, text_anchor='middle')
 
 
-W, H = 1680, 1080
-# AWS boundary
-E.append('<rect x="290" y="56" width="1080" height="930" rx="30" fill="none" stroke="#111827" stroke-width="2.4" stroke-dasharray="18 6 3 6"/>')
-E.append('<rect x="306" y="34" width="104" height="44" rx="8" fill="#fff"/>')
-E.append(dev('amazonwebservices/amazonwebservices-original-wordmark', 312, 30, 92, 52))
+def card(key, x, y, w, h, title, lines, kind='lu', logo='box', color=BLUE):
+    # data-* geometry is used by the visual layout checker.
+    put('nodes', f'<g data-card="{key}" data-x="{x}" data-y="{y}" data-w="{w}" data-h="{h}">')
+    rect('nodes', x, y, w, h, 'white', '#dce4ee', 14)
+    compact = h <= 88
+    icon_y, title_y, body_y = (12, 31, 58) if compact else (16, 38, 69)
+    rect('nodes', x + 16, y + icon_y, 30, 30, '#f0f4fa', 'none', 9)
+    put('nodes', icon(kind, logo, x + 21, y + icon_y + 5, 20))
+    text(x + 56, y + title_y, title, 18, INK, 650, layer='nodes')
+    for i, label in enumerate(lines):
+        text(x + 18, y + body_y + 21 * i, label, 14, MUTED, layer='nodes')
+    put('nodes', '</g>')
 
-box(320, 110, 330, 170, '상시 서버 · EC2 t3.micro')
-box(320, 320, 1020, 640, 'Agent 서버 · EC2 t4g.medium · 쓸 때만 켬', 'si', 'ubuntu')
 
-# left: me + Discord
-node(90, 470, 'lu', 'user', '나', '휴대폰 · PC')
-node(210, 470, 'si', 'discord', 'Discord', 'DM · 서버 멘션')
-node(90, 300, 'lu', 'monitor', 'PC 앱', 'desktop/ · 글 · 음성')
+def arrow(points, color=BLUE, both=False, dashed=False):
+    path = 'M' + ' L'.join(f'{x},{y}' for x, y in points)
+    dash = 'stroke-dasharray="5 5"' if dashed else ''
+    marker = 'direct' if color == TEAL else 'request'
+    start = f'marker-start="url(#back-{marker})"' if both else ''
+    put('edges', f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" {dash} {start} marker-end="url(#arrow-{marker})"/>')
 
-# always-on server
-node(485, 192, 'si', 'python', '전원 봇', 'power_bot.py')
 
-# main pipeline
-node(410, 440, 'si', 'python', 'Discord 게이트웨이', 'hermes_gateway.py')
-node(575, 440, 'lu', 'split', '코드 관문', '소유자 · 전원 · 고정 문장')
-node(745, 440, 'png', 'nous', 'Hermes Agent', '격리 worker · 사전 준비 1개')
-node(915, 440, 'lu', 'plug', 'daevis MCP 서버', 'stdio · 허용 목록')
+# Heading and execution boundary.
+rect('base', 0, 0, W, H, '#f8fafc', 'none', 0)
+text(48, 38, 'DAEVIS  /  SYSTEM ARCHITECTURE', 12, MUTED, 700, letter_spacing='2')
+text(48, 83, '대비스 시스템 아키텍처', 32, INK, 750)
+text(48, 116, '요청이 들어오는 곳, 판단하는 곳, 실제로 실행하는 곳을 구분합니다.', 17, MUTED)
+rect('base', 326, 148, 918, 934, '#f0f4f9', '#c1cfdf', 24, stroke_dasharray='8 6')
+rect('base', 1092, 132, 128, 32, '#f8fafc', 'none', 0)
+put('labels', dev('amazonwebservices/amazonwebservices-original-wordmark', 1100, 130, 48, 29))
+text(1156, 152, '실행 영역', 13, MUTED, 600)
+for x, label in ((48, 'DEVICE  /  내 기기'), (348, 'RELAY  /  항상 켜짐'),
+                 (692, 'AGENT  /  필요할 때 실행'), (1276, 'SERVICES  /  외부 연결')):
+    text(x, 187, label, 12, MUTED, 700, letter_spacing='.5')
 
-# under gateway
-node(410, 600, 'lu', 'clock', '예약 루프', 'schedule.json')
-node(410, 730, 'lu', 'activity', '상태 점검', '60초 · n8n · Android · 메모리')
-node(410, 860, 'lu', 'power', '유휴 자동 종료', '요청 없으면 서버 끔')
-# under gate / hermes / mcp
-node(575, 650, 'lu', 'route', '고정 문장 직접 실행', '시간·날짜 · 카톡 · 경로 · 모델 0회')
-node(745, 600, 'lu', 'shield', '반복 제한', '12회 · 120초 · 토큰 6만\n같은 오류 3회면 중단')
-node(745, 780, 'si', 'langchain', 'LangGraph', '도입 예정 · 코드 없음', dashed=True)
-node(915, 650, 'lu', 'key', '쓰기 승인', '소유자 DM 승인 · 거절')
+# Devices: the desktop app is also the remote-control executor.
+card('pc', 48, 220, 244, 144, 'Windows PC', ['Daevis 앱 · 호출어 인식', '화면·파일·입력 실행', '음성 응답 · 원격 제어 스위치'], logo='monitor')
+card('phone', 48, 404, 244, 130, '휴대폰', ['앱·음성으로 요청', '알람·전화 실행 노드'], logo='smartphone')
+card('discord', 48, 574, 244, 130, 'Discord', ['소유자 DM · 서버 멘션', '대화·알림·결제 승인'], kind='si', logo='discord')
 
-# tool column
-ROWS = [
-    ('si', 'sqlite', '기억 · SQLite', 'memory_search · save · forget'),
-    ('lu', 'clock', '예약', 'schedule_add · list · repeat · remove'),
-    ('lu', 'globe', '웹 검색 · 읽기', 'web_search · web_fetch'),
-    ('lu', 'map-pin', '길찾기 · 장소', 'route_search · map_search'),
-    ('si', 'naver', '메일 · 로그인 세션 · Playwright', 'mail_list · mail_read · auth_ensure'),
-    ('si', 'android', '앱 조작 · ReDroid (Docker)', 'android_open · screen · click · input'),
-    ('si', 'kakaotalk', '카카오톡', 'kakao_send · self_send · find_recipient'),
-    ('si', 'n8n', 'n8n 워크플로 (Docker)', 'n8n_list · n8n_run'),
-    ('lu', 'smartphone', '기기 노드 중계 :8791', 'device_nodes · enqueue · jobs'),
-    ('lu', 'monitor', 'PC 원격 제어 · 상시 중계 long-poll', 'pc_find_files · send_file · ui · act · shell'),
-    ('si', 'docker', '코드 실행 샌드박스 (Docker)', 'run_code · 512MB · 300초'),
+# Always-on relay.
+rect('base', 348, 220, 268, 484, 'white', '#cbd9e8', 18)
+put('nodes', si('python', 368, 241, 28))
+text(408, 264, '상시 중계 서버', 20, INK, 700)
+text(368, 291, '전원 봇 + 작업 큐', 14, MUTED)
+for y in (312, 414, 496, 608):
+    put('nodes', f'<path d="M368,{y} H596" stroke="#e6ecf3"/>')
+text(368, 345, '요청과 결과 중계', 17, INK, 650)
+text(368, 372, '작업 큐 · 진행 · 대화 기록', 14, MUTED)
+text(368, 394, '결제 답변 · 파일 첨부', 14, MUTED)
+text(368, 448, '필요할 때 본체 켜기', 17, INK, 650)
+text(368, 476, 'PC·폰 요청을 본체로 전달', 14, MUTED)
+text(368, 530, '정해진 명령 바로 처리', 17, INK, 650)
+text(368, 558, '시간·날짜 · 기기 전원', 14, MUTED)
+text(368, 580, '모델 호출 없이 응답', 14, MUTED)
+badge(368, 631, '상시 실행', 84, '#e4f3ef', TEAL)
+text(368, 682, '본체가 꺼져 있어도 요청 수신', 13, MUTED)
+
+# Main agent. A standby holds imports, never an active request lease.
+rect('base', 668, 220, 560, 840, '#f9fbfe', '#cbd9e8', 18)
+text(692, 260, '에이전트 서버', 22, INK, 700)
+badge(1094, 240, 'ARM · 4GB', 110, '#e4f3ef', TEAL)
+card('gateway', 692, 292, 224, 112, '소유자 관문', ['Discord · 요청별 대화', '권한과 대화 범위 확인'], logo='shield-check')
+card('hermes', 956, 292, 248, 112, 'Hermes 실행부', ['격리 worker · 1개 사전 준비', '모델과 도구를 번갈아 호출'], kind='png', logo='nous')
+card('direct', 692, 448, 224, 104, '정형 요청 처리', ['카톡 · 길찾기 · 모델 우회'], logo='route')
+card('mcp', 956, 448, 248, 104, 'daevis MCP', ['도구 허용 목록 · 요청 권한'], logo='plug')
+
+# Capabilities are grouped, rather than repeating every tool function.
+rect('base', 692, 600, 512, 338, '#edf3fa', 'none', 16)
+text(712, 632, '실행 도구', 18, INK, 700)
+text(712, 653, '도구 연결은 요청마다 새로 생성', 13, MUTED)
+card('web', 712, 672, 224, 74, '웹·메일·지도', ['검색 · 로그인 세션'], logo='globe')
+card('pc-tools', 956, 672, 224, 74, 'PC 원격 제어', ['중계 → 내 PC에서 실행'], logo='monitor')
+card('android', 712, 758, 224, 74, 'Android·카톡', ['ReDroid · 화면 기반 조작'], kind='si', logo='android')
+card('code', 956, 758, 224, 74, '코드 실행', ['일회용 Docker · 결과 파일'], kind='si', logo='docker')
+card('memory', 712, 844, 224, 74, '기억·대화', ['SQLite · 요청별 기록'], kind='si', logo='sqlite')
+card('workflow', 956, 844, 224, 74, '예약·자동화', ['예약 루프 · n8n'], kind='si', logo='n8n')
+card('operations', 692, 968, 512, 72, '운영과 실행 제어', ['상태 점검 · 유휴 종료 · 요청별 권한 · 반복 제한'], logo='activity')
+
+# External providers are outside the AWS execution boundary.
+card('models', 1276, 292, 276, 112, '추론 모델', ['ChatGPT 구독 · Claude 대체', '코드 관문을 통과한 요청 처리'], kind='png', logo='openai')
+card('services', 1276, 600, 276, 224, '연결된 서비스', ['웹 검색 · 서비스 페이지', '네이버 메일 · 로그인', '네이버 지도 · 카카오 로컬'], logo='globe')
+card('locations', 1276, 864, 276, 176, '실행 위치 구분', ['PC 조작 → 내 Windows PC', '코드 실행 → 본체의 Docker', '앱 조작 → 서버의 ReDroid'], logo='layers')
+
+# Main requests. All paths stay in the gutters, never across component text.
+arrow([(292, 292), (348, 292)], both=True)
+arrow([(292, 462), (348, 462)], both=True)
+arrow([(616, 348), (692, 348)])
+text(653, 335, 'long-poll', 11, BLUE, text_anchor='middle')
+arrow([(292, 638), (316, 638), (316, 738), (644, 738), (644, 348)])
+put('edges', '<circle cx="644" cy="348" r="4" fill="#3068c8"/>')
+text(465, 729, 'Discord는 본체가 직접 수신', 13, BLUE, text_anchor='middle')
+arrow([(916, 348), (956, 348)])
+arrow([(1204, 348), (1276, 348)], both=True)
+text(1240, 334, '추론', 12, BLUE, text_anchor='middle')
+arrow([(804, 404), (804, 448)], color=TEAL)
+arrow([(1080, 404), (1080, 448)])
+text(1096, 431, 'stdio', 12, BLUE)
+arrow([(804, 552), (804, 600)], color=TEAL)
+arrow([(1080, 552), (1080, 600)])
+arrow([(1204, 626), (1276, 626)])
+
+# Quiet legend fills no runtime boundary and makes the arrows self-contained.
+text(48, 837, '흐름 읽기', 16, INK, 650)
+arrow([(48, 866), (84, 866)])
+text(96, 871, '요청 · 결과 전달', 14, MUTED)
+arrow([(48, 902), (84, 902)], color=TEAL)
+text(96, 907, '모델을 거치지 않는 경로', 14, MUTED)
+text(48, 950, '점선 테두리 = AWS 실행 영역', 13, MUTED)
+text(48, 978, '소유자 요청으로 시작하고,', 14, MUTED)
+text(48, 1000, '결제 단계에서 승인을 받습니다.', 14, MUTED)
+
+# A separate sequence keeps the long PC return path out of the overview.
+text(48, 1122, 'PC 제어 · 파일 전달의 왕복 경로', 20, INK, 700)
+steps = [
+    ('request', '본체 도구', ['pc_* 요청'], 'plug'),
+    ('queue', '상시 중계', ['작업 큐 · long-poll'], 'server'),
+    ('execute', '내 PC 에이전트', ['화면·파일·입력 실행'], 'monitor'),
+    ('attachment', '중계 첨부 저장', ['파일 ID · 다운로드 링크'], 'file-up'),
+    ('result', '본체 결과 처리', ['첨부 준비 · 답변 생성'], 'inbox'),
+    ('delivery', 'Discord · 앱', ['답변 · 첨부 · 파일 받기'], 'send'),
 ]
-TX, Y0, STEP = 1070, 372, 56
-ys = [Y0 + i*STEP for i in range(len(ROWS))]
-for (k, n, l, s), y in zip(ROWS, ys):
-    row(TX, y, k, n, l, s)
-BUS = 1010
-E.append(f'<text x="{TX-20}" y="{Y0-36}" class="sb">recipe_run · plan_execute: 허용된 도구만 묶어 실행</text>')
-E.append(f'<path d="M{BUS},{ys[0]} L{BUS},{ys[-1]+40}" stroke="#111827" stroke-width="1.6" fill="none"/>')
-for y in ys:
-    line([(BUS, y), (TX-22, y)])
+for i, (key, title, lines, logo) in enumerate(steps):
+    x = 48 + i * 256
+    card('flow-' + key, x, 1140, 222, 88, title, lines, logo=logo)
+    if i < len(steps) - 1:
+        arrow([(x + 222, 1184), (x + 256, 1184)])
+text(48, 1271, '도구별 호출 이름과 연결 코드는 README의 MCP 도구 지도에서 확인할 수 있습니다.', 13, MUTED)
 
-# externals
-EXT = {2: ('si', 'duckduckgo', 'DuckDuckGo'), 3: ('si', 'kakao', '카카오 로컬 · 네이버 지도'),
-       4: ('si', 'naver', '네이버 메일 · 로그인'), 5: ('png', 'baemin', '배달의민족 등 앱'),
-       6: ('si', 'kakaotalk', '카카오톡 계정'), 8: ('lu', 'laptop', '내 PC · 폰'), 9: ('lu', 'monitor', '내 Windows PC (UI Automation)')}
-EX = 1440
-for i, (k, n, l) in EXT.items():
-    y = ys[i]
-    line([(1352, y), (EX-22, y)])
-    E.append(f'<rect x="{EX-20}" y="{y-20}" width="40" height="40" rx="9" fill="#fff" stroke="#cbd5e1" stroke-width="1.3"/>')
-    E.append(icon(k, n, EX-13, y-13, 26))
-    E.append(f'<text x="{EX+30}" y="{y+5}" class="lb">{esc(l)}</text>')
-# Codex / ChatGPT
-node(1470, 192, 'png', 'openai', 'ChatGPT 구독 모델', 'Codex OAuth · API 키 없음')
-
-# edges
-line([(120, 470), (179, 470)])
-line([(240, 470), (300, 470), (300, 440), (380, 440)], '일반 요청', 340, 432)
-line([(210, 440), (210, 192), (454, 192)], '대비스 온라인 · 오프라인', 330, 184)
-line([(515, 192), (690, 192), (690, 318)], 'EC2 start · stop', 690, 250)
-line([(120, 300), (250, 300), (250, 212), (454, 212)], '요청 · 기록 · 결제 답', 186, 292)
-line([(485, 222), (485, 380), (425, 380), (425, 409)], 'PC 요청 전달', 535, 372)
-line([(440, 440), (544, 440)])
-line([(605, 440), (714, 440)], 'Hermes로', 660, 432)
-line([(776, 440), (884, 440)], '도구 호출', 830, 432)
-line([(946, 440), (BUS, 440)])
-line([(745, 410), (745, 300), (1150, 300), (1150, 192), (1439, 192)], '추론 요청 · 응답', 1290, 184, both=True)
-line([(575, 512), (575, 619)])
-line([(575, 722), (575, 935), (BUS, 935)], '같은 도구 함수를 바로 호출', 790, 928)
-E.append(f'<path d="M{BUS},{ys[-1]+40} L{BUS},935" stroke="#111827" stroke-width="1.6" fill="none"/>')
-line([(745, 512), (745, 569)], dashed=True, color='#64748b')
-line([(745, 690), (745, 749)], '긴 승인 작업용', 745, 722, dashed=True, color='#64748b')
-line([(915, 512), (915, 619)], '쓰기 도구면', 915, 565)
-line([(915, 722), (915, 1030), (210, 1030), (210, 548)], '승인 요청 DM → 승인 · 거절 답장', 520, 1022)
-line([(410, 512), (410, 569)], dashed=True, color='#64748b')
-
-CSS = ('<style>.lb{font:600 13px "Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;fill:#111827}'
-       '.sb{font:11.5px "Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;fill:#6b7280}'
-       '.mono{font:11px ui-monospace,Consolas,monospace;fill:#6b7280}'
-       '.bt{font:700 14px "Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;fill:#334155}'
-       '.el{font:11.5px "Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;fill:#374151}</style>')
-DEFS = ('<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
-        '<path d="M0,0 L10,5 L0,10 z" fill="#111827"/></marker>'
-        '<marker id="arrS" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
-        '<path d="M10,0 L0,5 L10,10 z" fill="#111827"/></marker></defs>')
-svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">{CSS}{DEFS}'
-       f'<rect width="{W}" height="{H}" fill="#ffffff"/>' + ''.join(E) + '</svg>')
+STYLE = '<style>text{font-family:"Malgun Gothic","Noto Sans KR",Arial,sans-serif}path{stroke-linecap:round}</style>'
+DEFS = '<defs>'
+for marker, color in (('request', BLUE), ('direct', TEAL)):
+    DEFS += (f'<marker id="arrow-{marker}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
+             f'<path d="M1 1 L9 5 L1 9" fill="none" stroke="{color}" stroke-width="1.7"/></marker>'
+             f'<marker id="back-{marker}" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
+             f'<path d="M9 1 L1 5 L9 9" fill="none" stroke="{color}" stroke-width="1.7"/></marker>')
+DEFS += '</defs>'
+svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-labelledby="diagram-title diagram-desc">'
+       '<title id="diagram-title">대비스 시스템 아키텍처</title>'
+       '<desc id="diagram-desc">PC·휴대폰·Discord 요청이 상시 중계 또는 소유자 관문으로 들어가고, Hermes와 MCP 도구를 통해 실행된다. PC 제어와 파일 전달은 상시 중계를 왕복한다.</desc>'
+       + STYLE + DEFS + ''.join(''.join(LAYERS[layer]) for layer in LAYERS) + '</svg>')
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(svg, encoding='utf-8')
 print(OUT, len(svg))

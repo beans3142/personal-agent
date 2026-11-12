@@ -42,41 +42,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 
 Agent 서버는 쓸 때만 켠다. 꺼진 서버를 켜는 일은 항상 켜 둔 작은 서버의 전원 봇이 맡고, 아무 요청이 없으면 Agent 서버가 스스로 꺼진다.
 
-```mermaid
-flowchart LR
-    me(["📱 나<br/>Discord DM · 멘션"])
-    app(["🖥️ PC 앱<br/>desktop/ · 글 · 음성"])
-    codex["🤖 Codex OAuth<br/>ChatGPT 구독 모델"]
-
-    subgraph always["상시 서버 · t3.micro"]
-        power["⚡ 전원 봇<br/>power_bot.py"]
-    end
-
-    subgraph agent["Agent 서버 · t4g.medium"]
-        direction TB
-        gw["💬 Discord 게이트웨이<br/>hermes_gateway.py"]
-        worker["🧩 Hermes worker<br/>요청마다 격리 · 사전 준비 1개"]
-        mcp["🔌 daevis MCP 서버<br/>mcp_server.py · stdio"]
-        subgraph backends["MCP 뒤에 붙은 것"]
-            direction LR
-            db[("🗄️ SQLite<br/>기억 · 대화 · 예약")]
-            browser["🌐 브라우저 데몬<br/>Playwright · 로그인 세션"]
-            android["📱 ReDroid<br/>Android 13 · 카톡"]
-            n8n["🔁 n8n<br/>Docker"]
-            nodes["💻 기기 노드 중계<br/>:8791"]
-        end
-    end
-
-    me -- "대비스 온라인 / 오프라인" --> power
-    app -- "요청 · 기록 · 결제 답" --> power
-    power -- "PC 요청 전달" --> gw
-    power -- "EC2 start / stop" --> agent
-    me -- "일반 요청" --> gw
-    gw --> worker
-    worker <--> codex
-    worker -- "도구 호출" --> mcp
-    mcp --> db & browser & android & n8n & nodes
-```
+위 아키텍처 그림에서 기기·상시 중계·에이전트·외부 서비스의 경계를 볼 수 있다. PC 원격 조작과 파일 전달의 왕복 경로는 그림 아래쪽에 따로 표시했다.
 
 | 구성 요소 | 파일 | 하는 일 |
 | --- | --- | --- |
@@ -107,11 +73,11 @@ flowchart TD
 
     subgraph loop["🧩 Hermes worker"]
         direction TB
-        think["🤖 모델이 다음 행동 결정"] -- 도구가 필요함 --> gate{"승인이 필요한<br/>도구인가?"}
+        think["🤖 모델이 다음 행동 결정"] -- 도구가 필요함 --> gate{"결제 단계인가?"}
         gate -- 아니오 --> trun["🔌 MCP 도구 실행"]
         gate -- 예 --> ask["Discord DM 승인 요청"]
         ask -- 승인 --> trun
-        trun --> guard{"제한에 걸렸나?<br/>12회 · 120초<br/>토큰 6만 · 같은 오류 3회"}
+        trun --> guard{"제한에 걸렸나?<br/>시간 · 호출 · 토큰 제한<br/>같은 오류 반복"}
         guard -- 아니오 --> think
     end
 
@@ -126,13 +92,13 @@ flowchart TD
 
 ## MCP 도구
 
-도구는 daevis MCP 서버 하나에 모두 들어 있고, 모델에 무엇을 보여 줄지는 세 단계로 정한다. 기본값은 읽기 도구 4개만 보이는 상태다. 쓰기 도구는 허용 목록에 이름을 넣고 승인 방식을 `discord`로 바꿔야 열리며, 그때도 실행 직전에 소유자 DM 승인을 거친다.
+도구는 daevis MCP 서버 하나에 모두 들어 있고, 모델에 무엇을 보여 줄지는 세 단계로 정한다. 기본값은 읽기 도구 4개만 보이는 상태다. 실행 도구는 허용 목록과 소유자 요청 권한으로 제어한다. 실행은 유효한 소유자 요청 범위에서만 허용되며 결제 단계에서 승인을 받는다.
 
 ```mermaid
 flowchart TD
     hermes["🧩 Hermes worker"] -- "MCP stdio" --> mcp["🔌 daevis MCP 서버<br/>허용 목록 · 공개 채널 · 승인 판단"]
     mcp --> r["📖 <b>읽기</b><br/>memory_search<br/>route_search · map_search<br/>web_search · web_fetch<br/>mail_list · mail_read<br/>schedule_list<br/>android_screen<br/>kakao_find_recipient<br/>n8n_list · device_nodes · device_jobs"]
-    mcp --> w["✍️ <b>쓰기 · 승인 필요</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_send_file · pc_save_file<br/>pc_system · pc_shell · run_code"]
+    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_send_file · pc_save_file<br/>pc_system · pc_shell · run_code"]
     mcp --> c["🧭 <b>조합</b><br/>recipe_list · recipe_run<br/>plan_execute<br/><i>허용된 도구만 묶어서 실행</i>"]
 ```
 
@@ -141,9 +107,9 @@ flowchart TD
 | 허용 목록 | `DAEVIS_MCP_ALLOW_TOOLS` | 이름이 없는 도구는 모델에게 아예 보이지 않음. 기본값 `memory_search,route_search,map_search,android_screen` |
 | 공개 채널 | `DAEVIS_MCP_PUBLIC=1` | 서버 채널 요청이면 기억, 메일, 예약 목록 같은 개인 도구를 숨김 |
 | 예약 실행 | `DAEVIS_MCP_READ_ONLY=1` | 소유자가 직접 보낸 요청이 아니면 읽기 도구만 남김 |
-| 승인 | `DAEVIS_MCP_APPROVAL=deny` 또는 `discord` | `deny`면 쓰기 도구는 항상 거절. `discord`면 소유자 DM 승인 후 실행 |
+| 승인 | `DAEVIS_MCP_APPROVAL=deny` 또는 `discord` | 결제 단계는 `discord`에서 소유자에게 승인 요청. 다른 동작도 유효한 소유자 요청 권한이 필요 |
 
-Android 화면 이동(열기, 누르기, 입력, 넘기기)은 소유자가 지금 보낸 요청 안에서는 승인 없이 진행한다. 결제, 주문, 동의, 삭제, 로그아웃처럼 되돌리기 어려운 버튼은 화면을 다시 확인한 뒤 따로 승인을 받는다.
+PC·Android 조작은 소유자가 시작한 요청 안에서 실행하고, 결제 단계에서만 승인을 받는다. 웹·메일·채팅 내용에 들어 있는 지시가 새 기기 조작 권한을 만들지는 않는다.
 
 ## 실행
 
