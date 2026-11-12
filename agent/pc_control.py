@@ -395,7 +395,7 @@ def pc_handler(registry,public_dir):
         def do_POST(self):
             if self.path in ('/history','/progress','/approve'):return self.desktop_post()
             if self.path=='/pc/upload':return self.upload()
-            if self.path in ('/pc/poll','/pc/download','/pc/list','/pc/share') or self.path=='/request-status' and self._peek_wait():return self.remote_post()
+            if self.path in ('/agent/poll','/pc/poll','/pc/download','/pc/list','/pc/share') or self.path=='/request-status' and self._peek_wait():return self.remote_post()
             if self.path!='/enroll':return super().do_POST()
             self.connection.settimeout(10)
             try:
@@ -441,7 +441,9 @@ def pc_handler(registry,public_dir):
                     data=self.rfile.read(length)
                 body=json.loads(data);token=self._token()
                 if not isinstance(body,dict):raise ValueError('invalid object')
-                if self.path=='/pc/poll' and set(body)=={'node','wait'}:
+                if self.path=='/agent/poll' and set(body)=={'node','wait'}:
+                    reply={'job':registry.agent_poll(body['node'],token,body['wait'])}
+                elif self.path=='/pc/poll' and set(body)=={'node','wait'}:
                     reply={'job':registry.task_poll(body['node'],token,body['wait'])}
                 elif self.path=='/request-status' and set(body)=={'node','id','wait'}:
                     reply=registry.wait_status(body['node'],token,body['id'],body['wait'])

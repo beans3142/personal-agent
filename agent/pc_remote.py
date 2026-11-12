@@ -66,6 +66,20 @@ class RemoteMixin:
                 return job
             sleep(step)
 
+    def agent_poll(self, node, token, wait=20, step=0.15, sleep=time.sleep, monotonic=time.monotonic):
+        """Wait for the main agent's next voice job without a client-side polling gap."""
+        if node != 'agent-main':
+            raise PermissionError('main agent only')
+        self._auth(node, token)
+        if type(wait) not in (int, float) or not 0 <= wait <= 25:
+            raise ValueError('wait must be 0..25 seconds')
+        deadline = monotonic() + wait
+        while True:
+            job = super().poll(node, token, ('voice_command',))
+            if job or monotonic() >= deadline:
+                return job
+            sleep(step)
+
     def wait_status(self, source, token, job_id, wait=20, step=0.3, sleep=time.sleep, monotonic=time.monotonic):
         """The issuer's receipt, returned early once the job leaves queued/dispatched."""
         if type(wait) not in (int, float) or not 0 <= wait <= 25:

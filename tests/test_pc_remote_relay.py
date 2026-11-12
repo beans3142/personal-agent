@@ -307,3 +307,30 @@ def test_results_are_cleared_once_read_and_old_tasks_pruned(tmp_path):
     r.task_poll(pc['node'], pc['token'], wait=0)
     with r._db() as db:
         assert not db.execute('SELECT 1 FROM jobs WHERE id=?', (job['id'],)).fetchone()
+
+
+def test_agent_long_poll_returns_a_new_voice_job_and_rejects_pc(tmp_path):
+    r, pc, agent, _ = setup(tmp_path)
+    assert r.agent_poll('agent-main', agent, wait=0) is None
+    with pytest.raises(PermissionError):
+        r.agent_poll(pc['node'], pc['token'], wait=0)
+    forwarded = []
+    def arrive(_):
+        forwarded.append(r.forward_to_agent('hello', 'test-wait', 'typed'))
+    got = r.agent_poll('agent-main', agent, wait=1, sleep=arrive)
+    assert got['id'] == forwarded[0]['id'] and got['action'] == 'voice_command'
+    assert r.agent_poll('agent-main', agent, wait=0) is None
+
+
+@pytest.mark.parametrize('wait', [-1, 26, True, float('nan')])
+def test_agent_long_poll_rejects_invalid_wait(tmp_path, wait):
+    r, pc, agent, _ = setup(tmp_path)
+    with pytest.raises(ValueError):
+        r.agent_poll('agent-main', agent, wait=wait)
+
+
+def test_http_agent_long_poll(served):
+    r, pc, agent, call = served
+    assert call('/agent/poll', {'node': 'agent-main', 'wait': 0}, agent) == (200, {'job': None})
+    assert call('/agent/poll', {'node': pc['node'], 'wait': 0}, pc['token'])[0] == 401
+    assert call('/agent/poll', {'node': 'agent-main', 'wait': 26}, agent)[0] == 400

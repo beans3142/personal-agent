@@ -326,3 +326,15 @@ def test_segmenter_keeps_a_short_pause_inside_one_request():
     frames = [room] * 40 + [speech] * 20 + [room] * 22 + [speech] * 30 + [room] * 40
     result = [u for f in frames if (u := seg.feed(f)) is not None]
     assert len(result) == 1
+
+
+def test_agent_poller_uses_long_poll_when_requested():
+    from agent.voice_agent import poll_once
+    posts = []
+    def post(endpoint, body):
+        posts.append((endpoint, body))
+        return {'job': None}
+    async def answer(*args):
+        pytest.fail('no job to answer')
+    assert asyncio.run(poll_once(post, answer, 'agent-main', wait=20)) is False
+    assert posts == [('/agent/poll', {'node': 'agent-main', 'wait': 20})]

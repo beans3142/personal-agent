@@ -132,8 +132,9 @@ def receipt_fit(result):
     return result
 
 
-async def poll_once(post, answer, node):
-    job = (await asyncio.to_thread(post, '/poll', {'node': node}))['job']
+async def poll_once(post, answer, node, wait=0):
+    endpoint, body = ('/agent/poll', {'node': node, 'wait': wait}) if wait else ('/poll', {'node': node})
+    job = (await asyncio.to_thread(post, endpoint, body))['job']
     if job is None:
         return False
     status, result = 'failed', {'reply': '지원하지 않는 요청이에요.'}
@@ -157,7 +158,7 @@ def relay_post(base, token):
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):
                 return None
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=25) as response:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=35) as response:
             return json.loads(response.read(65536))
     return post
 
@@ -167,8 +168,7 @@ async def agent_loop(gateway, base, token, node='agent-main'):
     share = relay_share(base, token)
     while True:
         try:
-            await poll_once(post, lambda text, via, report, topic=None: voice_turn(gateway, text, report, via, topic, share), node)
-            await asyncio.sleep(2)
+            await poll_once(post, lambda text, via, report, topic=None: voice_turn(gateway, text, report, via, topic, share), node, wait=20)
         except Exception as error:
             log.warning('voice relay unavailable (%s)', type(error).__name__)
             await asyncio.sleep(30)
