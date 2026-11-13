@@ -256,6 +256,8 @@ def main() -> None:
         from .owner_controls import ControlStore,control_handler
         bot.control_store=ControlStore('data/owner-control.sqlite3')
         handler=control_handler(handler,bot.control_store,bot,json.loads(config.read_text())['digest'])
+    from .phone_secrets import PhoneSecrets, parameter_provider, secret_handler
+    handler=secret_handler(handler,PhoneSecrets(bot.pc_registry,parameter_provider(ssm)))
     relay=ThreadingHTTPServer(('127.0.0.1',8792),handler)
     Thread(target=relay.serve_forever,daemon=True).start()
     bot.run(token, log_handler=None)

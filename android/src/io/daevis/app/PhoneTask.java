@@ -22,9 +22,9 @@ final class PhoneTask {
             String op = payload == null ? "" : payload.optString("op");
             JSONObject args = payload == null || payload.optJSONObject("args") == null ? new JSONObject() : payload.optJSONObject("args");
             JSONObject out;
-            if (!a.ensureAwake()) {
-                // PIN lock: do nothing, report the lock screen so the caller stops.
-                out = a.screen().put("locked", true);
+            if (!a.ensureAwake() && !a.unlock(node, token, id)) {
+                // Never upload the password field or a partially entered credential.
+                out = new JSONObject().put("locked", true).put("nodes", new org.json.JSONArray());
             } else if ("screen".equals(op)) {
                 out = a.screen();
             } else {

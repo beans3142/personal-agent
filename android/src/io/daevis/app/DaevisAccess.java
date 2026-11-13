@@ -38,7 +38,7 @@ public final class DaevisAccess extends AccessibilityService {
 
     /**
      * Before a step: if the screen is off or a lock screen without PIN is up, turn it on and
-     * dismiss it. Returns false when a PIN is needed (Daevis never enters it).
+     * dismiss it. Returns false when a password is needed; unlock() handles that separately.
      */
     boolean ensureAwake() throws InterruptedException {
         main.removeCallbacks(relock);
@@ -57,6 +57,56 @@ public final class DaevisAccess extends AccessibilityService {
     void scheduleRelock() {
         main.removeCallbacks(relock);
         if (wokeUs) main.postDelayed(relock, 20000);
+    }
+
+    /** Fetch the credential only after finding the system password field, then try exactly once. */
+    boolean unlock(String node, String token, String job) {
+        android.app.KeyguardManager km = getSystemService(android.app.KeyguardManager.class);
+        return UnlockFlow.run(new UnlockFlow.Device() {
+            AccessibilityNodeInfo field;
+            public boolean locked() { return km.isKeyguardLocked(); }
+            public boolean prepare() throws Exception {
+                wokeUs = true;
+                startActivity(new Intent(DaevisAccess.this, WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
+                for (int i=0; i<25; i++) {
+                    field = passwordField(getRootInActiveWindow());
+                    if (field != null) return true;
+                    Thread.sleep(160);
+                }
+                return false;
+            }
+            public String credential() throws Exception {
+                return Relay.send("/phone/unlock-secret", new JSONObject().put("node",node).put("id",job), token).getString("password");
+            }
+            public boolean enter(String password) throws Exception {
+                if (field == null || !field.refresh() || !field.isPassword()) return false;
+                Bundle args = new Bundle();
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, password);
+                field.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                if (!field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)) return false;
+                if (Build.VERSION.SDK_INT >= 30 && field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId())) return true;
+                AccessibilityNodeInfo root = getRootInActiveWindow();
+                for (String id : new String[]{"com.android.systemui:id/key_enter", "com.android.systemui:id/enter_key", "com.android.systemui:id/keyguard_enter"}) {
+                    if (root == null) break;
+                    for (AccessibilityNodeInfo n : root.findAccessibilityNodeInfosByViewId(id))
+                        if (n.isVisibleToUser() && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+                }
+                return false;
+            }
+            public void waitForUnlock() throws Exception {
+                for(int i=0; i<25 && km.isKeyguardLocked(); i++) Thread.sleep(160);
+            }
+        });
+    }
+
+    private AccessibilityNodeInfo passwordField(AccessibilityNodeInfo n) {
+        if (n == null || !"com.android.systemui".contentEquals(n.getPackageName())) return null;
+        if (n.isVisibleToUser() && n.isEditable() && n.isPassword()) return n;
+        for (int i=0; i<n.getChildCount(); i++) {
+            AccessibilityNodeInfo found=passwordField(n.getChild(i));
+            if (found != null) return found;
+        }
+        return null;
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
     @Override public void onInterrupt() {}

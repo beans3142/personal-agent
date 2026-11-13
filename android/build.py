@@ -43,6 +43,8 @@ def test(out):
     classes.mkdir(parents=True, exist_ok=True)
     run('javac', '-encoding', 'UTF-8', '-d', classes, HERE / 'src/io/daevis/app/Logic.java', HERE / 'test/LogicTest.java')
     run('java', '-Dstdout.encoding=UTF-8', '-cp', classes, 'LogicTest')
+    run('javac', '-encoding', 'UTF-8', '-d', classes, HERE / 'src/io/daevis/app/UnlockFlow.java', HERE / 'test/UnlockFlowTest.java')
+    run('java', '-cp', classes, 'io.daevis.app.UnlockFlowTest')
 
 
 def keystore(out):
