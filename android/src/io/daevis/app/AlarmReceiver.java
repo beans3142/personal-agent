@@ -16,6 +16,7 @@ public final class AlarmReceiver extends BroadcastReceiver {
         } else if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             Alarms.restore(c);
             try { Alarms.schedulePolling(c); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "polling", e); }
+            LinkService.start(c);
         }
     }
 }

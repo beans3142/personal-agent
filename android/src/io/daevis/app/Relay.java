@@ -28,10 +28,14 @@ final class Relay {
     }
 
     static JSONObject send(String path, JSONObject body, String token) throws IOException {
+        return send(path, body, token, 25000);
+    }
+
+    static JSONObject send(String path, JSONObject body, String token, int readTimeoutMs) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(Logic.BASE + path).openConnection();
         c.setInstanceFollowRedirects(false);  // Bearer credentials never follow a redirect.
         c.setConnectTimeout(15000);
-        c.setReadTimeout(25000);
+        c.setReadTimeout(readTimeoutMs);
         c.setRequestMethod("POST");
         c.setDoOutput(true);
         c.setRequestProperty("Content-Type", "application/json");

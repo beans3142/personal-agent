@@ -33,6 +33,9 @@ public class LogicTest {
         check(Logic.alarmProblem(now + 60, "x".repeat(61), now) != null, "long alarm label refused");
         check(Logic.alarmCode("0123456789abcdef0123456789abcdef") == Logic.alarmCode("0123456789abcdef0123456789abcdef"), "alarm code stable");
         check(Logic.alarmCode("a") != Logic.alarmCode("b"), "alarm codes differ");
+        check(Logic.backoffSeconds(0) == 0, "no wait after success");
+        check(Logic.backoffSeconds(1) == 15 && Logic.backoffSeconds(2) == 30 && Logic.backoffSeconds(3) == 60, "backoff doubles");
+        check(Logic.backoffSeconds(6) == 300 && Logic.backoffSeconds(50) == 300, "backoff capped at 5 minutes");
         check(!Logic.validPhone("pc-0123456789abcdef"), "pc node is not a phone registration");
         check(!Logic.validPhone("../x"), "bad node");
 

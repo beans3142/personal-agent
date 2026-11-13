@@ -124,3 +124,18 @@ def test_registered_phone_gets_alarms_from_the_main_agent_by_the_name_phone(tmp_
     # The grant is for alarms only.
     with pytest.raises(PermissionError):
         r.request('agent-main', agent_token, 'phone', 'phone_call', {'name': '엄마'}, 'c1', 30)
+
+
+def test_poll_can_wait_for_an_alarm_job(store):
+    import agent.device_nodes as dn
+    waited = []
+    # Nothing queued: the call waits up to `wait` seconds, checking once a second.
+    job = dn.wait_poll(store, 'phone-0123456789abcdef', store.phone_token, ['phone_alarm_at'], 3,
+                       sleep=waited.append, monotonic=iter(range(100)).__next__)
+    assert job is None and len(waited) == 2
+    alarm(store, NOW + 600)
+    job = dn.wait_poll(store, 'phone-0123456789abcdef', store.phone_token, ['phone_alarm_at'], 240,
+                       sleep=lambda s: None, monotonic=iter(range(100)).__next__)
+    assert job['action'] == 'phone_alarm_at'
+    with pytest.raises(ValueError):
+        dn.wait_poll(store, 'phone-0123456789abcdef', store.phone_token, ['phone_alarm_at'], 241)

@@ -68,34 +68,42 @@ final class Alarms {
                 return added;
             }
             if (job == null) break;
-            String id = job.optString("id");
-            JSONObject payload = job.optJSONObject("payload");
-            long at = payload == null ? 0 : payload.optLong("at", 0);
-            String text = payload == null ? "" : payload.optString("text", "");
-            String problem = "phone_alarm_at".equals(job.optString("action")) ? Logic.alarmProblem(at, text, System.currentTimeMillis() / 1000) : "not an alarm";
-            String status = "failed";
-            JSONObject result = new JSONObject();
-            try {
-                if (problem == null) {
-                    remember(c, id, at, text.trim());
-                    boolean exact = arm(c, id, at, text.trim());
-                    status = "succeeded";
-                    result.put("scheduled", true).put("exact", exact);
-                    added++;
-                } else {
-                    result.put("error", problem);
-                }
-            } catch (Exception e) {
-                status = "uncertain";
-                try { result.put("error", e.getClass().getSimpleName()); } catch (JSONException ignored) {}
-            }
-            try {
-                Relay.send("/ack", new JSONObject().put("node", node).put("id", id).put("status", status).put("result", result), token);
-            } catch (Exception e) {
-                Log.w(TAG, "ack failed: " + e.getMessage());
-            }
+            if (handle(c, node, token, job)) added++;
         }
         return added;
+    }
+
+
+    /** Registers one alarm job and reports the result to the relay; true when the alarm is set. */
+    static boolean handle(Context c, String node, String token, JSONObject job) {
+        String id = job.optString("id");
+        JSONObject payload = job.optJSONObject("payload");
+        long at = payload == null ? 0 : payload.optLong("at", 0);
+        String text = payload == null ? "" : payload.optString("text", "");
+        String problem = "phone_alarm_at".equals(job.optString("action")) ? Logic.alarmProblem(at, text, System.currentTimeMillis() / 1000) : "not an alarm";
+        String status = "failed";
+        JSONObject result = new JSONObject();
+        boolean ok = false;
+        try {
+            if (problem == null) {
+                remember(c, id, at, text.trim());
+                boolean exact = arm(c, id, at, text.trim());
+                status = "succeeded";
+                result.put("scheduled", true).put("exact", exact);
+                ok = true;
+            } else {
+                result.put("error", problem);
+            }
+        } catch (Exception e) {
+            status = "uncertain";
+            try { result.put("error", e.getClass().getSimpleName()); } catch (JSONException ignored) {}
+        }
+        try {
+            Relay.send("/ack", new JSONObject().put("node", node).put("id", id).put("status", status).put("result", result), token);
+        } catch (Exception e) {
+            Log.w(TAG, "ack failed: " + e.getMessage());
+        }
+        return ok;
     }
 
     private static void remember(Context c, String id, long at, String text) throws JSONException {

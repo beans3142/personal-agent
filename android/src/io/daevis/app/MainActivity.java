@@ -112,6 +112,8 @@ public class MainActivity extends Activity {
         try { Alarms.channel(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "channel", e); }
         try { Alarms.schedulePolling(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "polling", e); }
         calls.execute(() -> { try { Alarms.sync(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "sync", e); } });
+        LinkService.start(this);
+        askBatteryExemption();
     }
 
     @Override
@@ -153,6 +155,20 @@ public class MainActivity extends Activity {
     }
 
     /** Ask once for notification permission (Android 13+), the first time a request is sent. */
+    /** Samsung stops background connections unless the app is exempt; ask once. */
+    @SuppressWarnings("BatteryLife")
+    private void askBatteryExemption() {
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        if (pm.isIgnoringBatteryOptimizations(getPackageName()) || prefs.getBoolean("asked_battery", false)) return;
+        prefs.edit().putBoolean("asked_battery", true).apply();
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:" + getPackageName())));
+        } catch (RuntimeException e) {
+            android.util.Log.w("DaevisLink", "battery settings", e);
+        }
+    }
+
     void askNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                 && !prefs.getBoolean("asked_notifications", false)) {

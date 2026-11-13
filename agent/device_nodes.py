@@ -288,6 +288,21 @@ def build_device_tools(data_path, env=None):
     ]
 
 
+POLL_WAIT_MAX = 240  # Phone app long poll: one wake-up every few minutes keeps the battery cost low.
+
+
+def wait_poll(store, node, token, actions, wait, sleep=time.sleep, monotonic=time.monotonic):
+    """Hold the request until a job for these actions arrives or `wait` seconds pass."""
+    if type(wait) not in (int, float) or not 0 <= wait <= POLL_WAIT_MAX:
+        raise ValueError('wait must be 0..%d seconds' % POLL_WAIT_MAX)
+    deadline = monotonic() + wait
+    while True:
+        job = store.poll(node, token, actions=actions)
+        if job or monotonic() >= deadline:
+            return job
+        sleep(1)
+
+
 def handler_for(store):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -312,6 +327,9 @@ def handler_for(store):
                         and body['actions'] and all(isinstance(a, str) for a in body['actions']) and set(body['actions']) <= ACTIONS):
                     # A receiver that handles only some actions (the phone app takes alarms, not calls).
                     result = {'job': store.poll(body['node'], token, actions=sorted(set(body['actions'])))}
+                elif (self.path == '/poll' and set(body) == {'node', 'actions', 'wait'} and isinstance(body['actions'], list)
+                        and body['actions'] and all(isinstance(a, str) for a in body['actions']) and set(body['actions']) <= ACTIONS):
+                    result = {'job': wait_poll(store, body['node'], token, sorted(set(body['actions'])), body['wait'])}
                 elif self.path == '/ack' and set(body) in ({'node', 'id', 'status'}, {'node', 'id', 'status', 'result'}):
                     store.ack(body['node'], token, body['id'], body['status'], body.get('result'))
                     result = {'ok': True}

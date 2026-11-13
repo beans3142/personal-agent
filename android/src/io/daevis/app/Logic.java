@@ -41,6 +41,12 @@ public final class Logic {
         return null;
     }
 
+    /** Seconds to wait before reconnecting after `failures` failed attempts in a row: 15, 30, 60 ... up to 5 minutes. */
+    public static int backoffSeconds(int failures) {
+        if (failures <= 0) return 0;
+        return (int) Math.min(300L, 15L << Math.min(failures - 1, 10));
+    }
+
     /** PendingIntent request code for an alarm job id. */
     public static int alarmCode(String jobId) {
         return 0x4A000000 ^ String.valueOf(jobId).hashCode();
