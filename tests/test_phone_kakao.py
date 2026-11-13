@@ -73,3 +73,12 @@ def test_dry_run_opens_and_verifies_without_typing_the_message():
     p = KakaoPhone()
     assert kakao_send(p, '반수의신', MSG, dry_run=True, sleep=nap)['code'] == 'KAKAO_CHECKED'
     assert not any(op == 'type' and a.get('text') == MSG for op, a in p.calls)
+
+
+def test_locked_phone_stops_at_once_without_pressing_keys():
+    calls = []
+    def locked(op, args):
+        calls.append(op)
+        return {'ok': True, 'screen': {'package': 'com.android.systemui', 'nodes': [{'i': 0, 'id': 'common_date'}]}}
+    out = kakao_send(locked, '반수의신', MSG, sleep=nap)
+    assert out['code'] == 'KAKAO_NOT_SENT' and 'locked' in out['reason'] and calls == ['open']

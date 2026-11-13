@@ -33,8 +33,19 @@ def _settled(phone, screen, sleep):
     return screen
 
 
+class PhoneLocked(Exception):
+    pass
+
+
+def _check_unlocked(screen):
+    # Apps cannot come up over the lock screen; Daevis never unlocks the phone.
+    if (screen.get('screen') or screen).get('package') == 'com.android.systemui':
+        raise PhoneLocked()
+    return screen
+
+
 def _open_search(phone, sleep=time.sleep):
-    screen = _settled(phone, phone('open', {'app': 'com.kakao.talk'}), sleep)
+    screen = _check_unlocked(_settled(phone, phone('open', {'app': 'com.kakao.talk'}), sleep))
     for _ in range(4):
         search = _find(_nodes(screen), lambda n: n.get('desc') in SEARCH_LABELS and n.get('c'))
         if search:
@@ -76,7 +87,10 @@ def _open_chat(phone, pick, name, sleep):
 
 def kakao_send(phone, recipient, text, dry_run=False, sleep=time.sleep):
     name = recipient.strip()
-    screen = _open_search(phone, sleep)
+    try:
+        screen = _open_search(phone, sleep)
+    except PhoneLocked:
+        return {'code': 'KAKAO_NOT_SENT', 'reason': 'phone is locked; unlock it and ask again'}
     if screen is None:
         return {'code': 'KAKAO_NOT_SENT', 'reason': 'search button not found'}
     field = _find(_nodes(screen), lambda n: n.get('e') and n.get('id') not in ('input_focus', 'message_edit_text'))
