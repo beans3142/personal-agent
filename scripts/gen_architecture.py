@@ -59,174 +59,218 @@ def icon(kind, name, x, y, s):
     return {'si': si, 'lu': lu, 'png': png}[kind](name, x, y, s)
 
 
-# Overview diagram: component boundaries first; tool names live in README's MCP map.
 from html import escape
 
-W, H = 1600, 1300
-LAYERS = {name: [] for name in ('base', 'edges', 'nodes', 'labels')}
-INK, MUTED, BLUE, TEAL = '#14263d', '#62748a', '#3068c8', '#087f8c'
+
+def build(icon, dev):
+    return Diagram(icon, dev).render()
 
 
-def put(layer, markup):
-    LAYERS[layer].append(markup)
+class Diagram:
+    width, height = 2240, 1660
+    ink, muted = '#182b42', '#5c6f83'
+    blue, teal, orange, gray = '#245daa', '#087f82', '#a45b20', '#738399'
+
+    def __init__(self, icon, dev):
+        self.icon, self.dev = icon, dev
+        self.layers = {key: [] for key in ('base', 'edges', 'nodes', 'labels')}
+
+    def text(self, x, y, label, size=14, color=None, weight=400, anchor='middle', layer='labels'):
+        self.layers[layer].append(f'<text x="{x}" y="{y}" font-size="{size}" fill="{color or self.ink}" font-weight="{weight}" text-anchor="{anchor}">{escape(label)}</text>')
+
+    def box(self, x, y, w, h, label, fill='#f5f8fc', dashed=False):
+        dash = 'stroke-dasharray="9 6"' if dashed else ''
+        self.layers['base'].append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="12" fill="{fill}" stroke="#bdcad9" stroke-width="1.4" {dash}/>')
+        if label:
+            self.text(x + 20, y + 28, label, 18, weight=650, anchor='start')
+
+    def node(self, key, cx, cy, title, source, kind='lu', logo='box', width=224):
+        self.layers['nodes'].append(f'<g data-node="{key}" data-x="{cx-width/2}" data-y="{cy-36}" data-w="{width}" data-h="126">')
+        self.layers['nodes'].append(f'<rect data-shape="true" x="{cx-28}" y="{cy-28}" width="56" height="56" rx="10" fill="white" stroke="#b9c9dc" stroke-width="1.3"/>')
+        self.layers['nodes'].append(self.icon(kind, logo, cx - 18, cy - 18, 36))
+        self.text(cx, cy + 48, title, 17, weight=650, layer='nodes')
+        self.text(cx, cy + 70, source, 12, self.muted, layer='nodes')
+        self.layers['nodes'].append('</g>')
+
+    def tool(self, key, cy, title, api, source, kind='lu', logo='box'):
+        self.layers['nodes'].append(f'<g data-node="{key}" data-x="1350" data-y="{cy-38}" data-w="472" data-h="91">')
+        self.layers['nodes'].append(f'<rect data-shape="true" x="1360" y="{cy-20}" width="40" height="40" rx="8" fill="white" stroke="#b9c9dc"/>')
+        self.layers['nodes'].append(self.icon(kind, logo, 1368, cy - 12, 24))
+        self.text(1420, cy - 8, title, 17, weight=650, anchor='start', layer='nodes')
+        self.text(1420, cy + 13, api, 13, self.blue, anchor='start', layer='nodes')
+        self.text(1420, cy + 34, source, 12, self.muted, anchor='start', layer='nodes')
+        self.layers['nodes'].append('</g>')
+
+    def external(self, key, cy, title, protocol, kind='lu', logo='globe'):
+        self.layers['nodes'].append(f'<g data-node="{key}" data-x="1922" data-y="{cy-32}" data-w="286" data-h="80">')
+        self.layers['nodes'].append(f'<rect data-shape="true" x="1932" y="{cy-20}" width="40" height="40" rx="8" fill="white" stroke="#c7d1dd"/>')
+        self.layers['nodes'].append(self.icon(kind, logo, 1940, cy - 12, 24))
+        self.text(1988, cy - 3, title, 17, weight=650, anchor='start', layer='nodes')
+        self.text(1988, cy + 21, protocol, 12, self.muted, anchor='start', layer='nodes')
+        self.layers['nodes'].append('</g>')
+
+    def wire(self, points, label=None, at=None, color=None, dashed=False, both=False, arrow=True):
+        color = color or self.blue
+        marker = {self.blue: 'rpc', self.teal: 'control', self.orange: 'ipc', self.gray: 'data'}[color]
+        path = 'M' + ' L'.join(f'{x},{y}' for x, y in points)
+        attrs = (' stroke-dasharray="6 5"' if dashed else '') + (f' marker-end="url(#a-{marker})"' if arrow else '') + (f' marker-start="url(#b-{marker})"' if both else '')
+        self.layers['edges'].append(f'<path data-edge="true" d="{path}" fill="none" stroke="{color}" stroke-width="1.7" stroke-linejoin="round"{attrs}/>')
+        if label:
+            self.text(*at, label, 12, color)
+
+    def components(self):
+        n, t = self.node, self.text
+        self.layers['base'].append(f'<rect width="{self.width}" height="{self.height}" fill="white"/>')
+        t(40, 46, 'Daevis · Deployment & Component Architecture', 28, weight=700, anchor='start')
+        self.box(340, 90, 1540, 1380, '', '#fbfcfe', True)
+        self.layers['labels'].append(self.dev('amazonwebservices/amazonwebservices-original-wordmark', 366, 74, 66, 40))
+        self.box(380, 132, 1448, 228, 'Relay Host · Always-on', '#f3f7fc')
+        self.box(380, 420, 1448, 1036, 'Agent Host · EC2 t4g.medium / ARM64 / 4GB')
+        t(180, 112, 'Clients / Device Agents', 18, weight=650)
+        t(1932, 144, 'External Providers / Services', 18, weight=650, anchor='start')
+        n('owner', 180, 180, 'Owner', 'Discord / PC / Phone', logo='user')
+        n('phone', 180, 340, 'Android App / Node', 'android/ · device-node.py', logo='smartphone', width=280)
+        n('discord', 180, 540, 'Discord', 'DM · mentions · approvals', 'si', 'discord')
+        self.box(40, 694, 280, 710, 'Windows Host', '#f9fbfd')
+        n('desktop', 180, 768, 'Desktop App', 'app.py · core.py', logo='monitor')
+        n('stt', 180, 932, 'Whisper STT', 'faster-whisper · GPU', logo='mic')
+        n('tts', 180, 1096, 'TTS', 'Windows / Edge TTS', logo='volume-2')
+        n('windows', 180, 1260, 'Windows Agent', 'agent.py · remote.py · pc_ops.py', logo='monitor', width=260)
+        t(180, 1380, 'UI Automation · PowerShell · files', 13, self.muted)
+        n('power', 500, 220, 'Power Bot', 'power_bot.py', 'si', 'python')
+        n('relay', 750, 220, 'Voice Relay', 'voice_relay.py', logo='audio-lines')
+        n('relay-api', 1000, 220, 'Relay API', 'pc_control.py', logo='server')
+        n('queue', 1250, 220, 'Job Queue / Registry', 'pc-control.sqlite3', 'si', 'sqlite', width=260)
+        n('blobs', 1600, 220, 'Attachment Store', 'pc-files/', logo='files')
+        for args in [
+            ('gateway',500,540,'Discord Gateway','hermes_gateway.py','si','python'),
+            ('router',710,540,'Request Router','gateway.py','lu','split'),
+            ('hermes',920,540,'HermesRunner','hermes_runner.py','lu','workflow'),
+            ('mcp',1130,540,'MCP Server','mcp_server.py','lu','plug'),
+            ('voice-agent',500,760,'Voice Agent','voice_agent.py','lu','audio-lines'),
+            ('recipes',710,760,'RecipeExecutor','recipes.py','lu','workflow'),
+            ('prepared',920,760,'PreparedExecutor','warm_worker.py','lu','layers'),
+            ('approval',1130,760,'ChannelApproval','approvals.py','lu','key-round'),
+            ('simple',500,960,'simple_reply()','simple_reply.py','lu','clock'),
+            ('kakao-direct',710,960,'KakaoWatcher','kakao_watch.py','si','kakaotalk'),
+            ('guard',920,960,'Hermes Worker','hermes-worker.py · hermes_policy.py','png','nous'),
+            ('outbox',1130,960,'Request Outbox','outbox/<request_id>/','lu','inbox'),
+            ('scheduler',500,1160,'Scheduler','gateway.schedule_loop','lu','calendar-clock'),
+            ('health',710,1160,'Health Monitor','runtime_health.py','lu','activity'),
+            ('idle',920,1160,'Idle Shutdown','power.py','lu','power'),
+            ('node-api',1130,1160,'Device Node API',':8791 · device_nodes.py','lu','smartphone'),
+            ('memory-db',500,1320,'Memory Store','agent.db','si','sqlite'),
+            ('conversation-db',710,1320,'Conversation Store','conversations.sqlite3','si','sqlite'),
+            ('schedule-file',920,1320,'Schedule Store','schedule.json','lu','file-json'),
+            ('device-db',1130,1320,'Device Registry','device-nodes.sqlite3','si','sqlite'),
+        ]:
+            n(*args)
+        t(1358,451,'MCP Tools / Runtime Adapters',18,weight=650,anchor='start')
+        self.rows = [
+            ('memory',490,'Memory · SQLite','memory_search · memory_save · memory_forget','memory.py','si','sqlite'),
+            ('schedule',566,'Scheduler','schedule_add · schedule_list · schedule_remove','scheduler.py · schedule.json','lu','calendar-clock'),
+            ('web',642,'Web Search / Fetch','web_search · web_fetch','tools.py','lu','globe'),
+            ('map',718,'Maps / Transit','route_search · map_search','tools.py · transit.py','lu','map-pin'),
+            ('mail',794,'Naver Mail','mail_list · mail_read · mail_send','naver_mail.py','si','naver'),
+            ('browser',870,'Browser Worker / Chromium','auth_ensure · Playwright / CDP','authgate.py · browser_worker.py','lu','globe'),
+            ('android',946,'Android · ReDroid','android_screen · android_click · android_input','android_control.py · ADB / uiautomator2','si','android'),
+            ('kakao',1022,'KakaoTalk','kakao_send · kakao_self_send · kakao_find_recipient','kakao_watch.py · kakao_self.py','si','kakaotalk'),
+            ('n8n',1098,'n8n · Docker','n8n_list · n8n_run','n8n_tools.py · HTTP','si','n8n'),
+            ('devices',1174,'Device Nodes','device_nodes · device_jobs · device_enqueue','device_nodes.py · device-nodes.sqlite3','lu','smartphone'),
+            ('pc',1250,'Windows PC Control','pc_find_files · pc_act · pc_shell · pc_send_file','pc_tools.py · Relay API','lu','monitor'),
+            ('sandbox',1326,'Code Execution · Docker','run_code · non-root · 512MB · 300s','sandbox.py','si','docker'),
+        ]
+        for args in self.rows:
+            self.tool(*args)
+        n('llm',2080,220,'LLM Providers','Codex OAuth · Anthropic','png','openai',width=256)
+        for args in [
+            ('search',642,'DuckDuckGo','HTTPS','si','duckduckgo'),
+            ('maps',718,'Map Services','Naver Maps · Kakao Local','si','kakao'),
+            ('mail-service',794,'Naver Mail','IMAP / SMTP / HTTPS','si','naver'),
+            ('web-apps',870,'Web Applications','HTTPS · session cookies','lu','globe'),
+            ('app-services',946,'App Services','KakaoTalk · Baemin','si','kakaotalk'),
+        ]:
+            self.external(*args)
+
+    def connections(self):
+        w, b, t, g, o = self.wire, self.blue, self.teal, self.gray, self.orange
+        w([(208,768),(316,768),(316,112),(1000,112),(1000,192)],'HTTPS / JSON',(680,102),both=True)
+        w([(208,340),(316,340),(316,112)],both=True)
+        w([(208,540),(472,540)],'Gateway / REST',(252,500),both=True)
+        w([(528,220),(722,220)],'dispatch',(625,207))
+        w([(778,220),(972,220)],'registry calls',(875,207))
+        w([(1028,220),(1222,220)],'SQLite',(1125,207),color=g,both=True)
+        w([(1000,192),(1000,176),(1600,176),(1600,192)],'file I/O',(1360,165),color=g,both=True)
+        w([(472,220),(360,220),(360,398),(380,398),(380,430)],'EC2 Start / Stop',(455,412),color=t,dashed=True)
+        w([(972,220),(880,220),(880,376),(398,376),(398,760),(472,760)],'HTTPS /agent/poll',(620,366),both=True)
+        w([(472,760),(430,760),(430,540),(472,540)])
+        w([(528,540),(682,540)])
+        w([(738,540),(892,540)],'engine.run()',(775,516))
+        w([(948,960),(1020,960),(1020,540),(1102,540)],'MCP / stdio',(1060,520))
+        w([(892,960),(820,960),(820,392),(1870,392),(1870,220),(2052,220)],'HTTPS',(1590,382),both=True)
+        w([(1158,540),(1310,540)])
+        w([(1310,490),(1310,1326)],arrow=False)
+        for _,cy,*_ in self.rows:
+            w([(1310,cy),(1360,cy)])
+        w([(682,540),(610,540),(610,760),(682,760)],'route / recipe',(670,691),color=t)
+        w([(610,760),(610,960),(528,960)],'date / time',(540,887),color=t)
+        w([(610,960),(682,960)],'quoted message',(748,895),color=t)
+        w([(738,760),(800,760),(800,1408),(1310,1408),(1310,1326)],'direct Python call',(940,1428),color=t)
+        w([(948,540),(990,540),(990,760),(948,760)],'preload',(1100,689),color=g,dashed=True)
+        w([(948,760),(1010,760),(1010,960),(948,960)],'JSON / stdin',(1110,887),color=g,dashed=True)
+        w([(1158,540),(1210,540),(1210,760),(1158,760)],'payment',(1240,689),color=o,dashed=True)
+        w([(1158,760),(1210,760),(1210,960),(1158,960)],color=o,dashed=True)
+        w([(1102,960),(1060,960),(1060,1376),(392,1376),(392,540),(472,540)],'approval file IPC',(740,1445),color=o,dashed=True,both=True)
+        w([(472,540),(410,540),(410,1056),(920,1056)],color=g,dashed=True,arrow=False)
+        for cx in (500,710,920):
+            w([(cx,1056),(cx,1132)],color=g,dashed=True)
+        w([(528,1160),(570,1160),(570,1260),(840,1260),(840,1320),(892,1320)],color=g,dashed=True)
+        w([(472,1320),(418,1320),(418,490),(1360,490)],'SQLite I/O',(600,478),color=g,dashed=True,both=True)
+        w([(410,1056),(370,1056),(370,1418),(630,1418),(630,1320),(682,1320)],color=g,dashed=True)
+        w([(1158,1160),(1250,1160),(1250,1320),(1158,1320)],color=g,dashed=True)
+        w([(1360,1174),(1290,1174),(1290,1320),(1158,1320)],'SQLite',(1250,1148),color=g)
+        for cy in (642,718,794,870,946):
+            w([(1822,cy),(1932,cy)],'HTTPS' if cy not in (794,946) else ('mail' if cy==794 else 'app HTTPS'),(1998,cy-30))
+        w([(1380,1002),(1380,966)],'UI',(1403,989),color=t)
+        w([(1822,1250),(1850,1250),(1850,112),(1000,112),(1000,192)],'HTTPS /request',(1910,1237))
+        w([(152,180),(26,180),(26,932),(152,932)],'audio / UI',(90,684),color=g,dashed=True)
+        for cy in (340,540,768):
+            w([(26,cy),(152,cy)],color=g,dashed=True)
+        w([(208,932),(300,932),(300,768),(208,768)],'STT text',(268,858),color=g,dashed=True)
+        w([(152,768),(68,768),(68,1096),(152,1096)],color=g,dashed=True)
+        w([(208,1260),(316,1260),(316,768)],'/pc/poll · /ack',(264,1245),both=True)
+
+    def sequence(self):
+        self.text(40,1514,'PC RPC / Artifact Data Flow',20,weight=650,anchor='start')
+        steps=[('pc_* tool','pc_tools.py'),('Relay API','/request → pc_task'),('Windows Agent','/pc/poll → UIA / PowerShell'),('Attachment Store','/pc/upload → file ID'),('MCP / Outbox','/pc/download → outbox'),('Discord / Desktop','DM attachment / share link')]
+        for i,(title,detail) in enumerate(steps):
+            x=40+i*364
+            self.layers['base'].append(f'<rect x="{x}" y="1534" width="330" height="74" rx="8" fill="#f5f8fc" stroke="#d1dce8"/>')
+            self.text(x+14,1561,title,17,weight=650,anchor='start')
+            self.text(x+14,1589,detail,12,self.muted,anchor='start')
+            if i<5:
+                self.wire([(x+330,1570),(x+364,1570)])
+        for x,c,d,label in [(40,self.blue,False,'RPC / API'),(280,self.teal,False,'direct call / control'),(610,self.gray,True,'storage / lifecycle'),(960,self.orange,True,'approval IPC')]:
+            self.wire([(x,1633),(x+46,1633)],color=c,dashed=d)
+            self.text(x+60,1638,label,13,self.muted,anchor='start')
+
+    def render(self):
+        self.components()
+        self.connections()
+        self.sequence()
+        style='<style>text{font-family:"Malgun Gothic","Noto Sans KR",Arial,sans-serif}path{stroke-linecap:round}</style>'
+        defs='<defs>'
+        for key,color in [('rpc',self.blue),('control',self.teal),('ipc',self.orange),('data',self.gray)]:
+            defs+=(f'<marker id="a-{key}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="{color}" stroke-width="1.7"/></marker>'
+                   f'<marker id="b-{key}" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M9 1 L1 5 L9 9" fill="none" stroke="{color}" stroke-width="1.7"/></marker>')
+        defs+='</defs>'
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.width}" height="{self.height}" viewBox="0 0 {self.width} {self.height}" role="img" aria-labelledby="arch-title arch-desc">'
+                '<title id="arch-title">Daevis Deployment and Component Architecture</title>'
+                '<desc id="arch-desc">Implemented clients, relay and agent hosts, source modules, MCP interfaces, protocols, state stores, and PC artifact flow.</desc>'
+                +style+defs+''.join(''.join(self.layers[k]) for k in self.layers)+'</svg>')
 
 
-def text(x, y, value, size=15, fill=INK, weight=400, layer='labels', **attrs):
-    extra = ' '.join(f'{k.replace("_", "-")}="{escape(str(v), quote=True)}"' for k, v in attrs.items())
-    put(layer, f'<text x="{x}" y="{y}" font-size="{size}" font-weight="{weight}" fill="{fill}" {extra}>{escape(value)}</text>')
-
-
-def rect(layer, x, y, w, h, fill='white', stroke='#dce4ee', radius=16, **attrs):
-    extra = ' '.join(f'{k.replace("_", "-")}="{escape(str(v), quote=True)}"' for k, v in attrs.items())
-    put(layer, f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{radius}" fill="{fill}" stroke="{stroke}" {extra}/>')
-
-
-def badge(x, y, label, width, fill='#eaf1ff', color=BLUE):
-    rect('nodes', x, y, width, 26, fill, 'none', 13)
-    text(x + width / 2, y + 18, label, 12, color, 600, text_anchor='middle')
-
-
-def card(key, x, y, w, h, title, lines, kind='lu', logo='box', color=BLUE):
-    # data-* geometry is used by the visual layout checker.
-    put('nodes', f'<g data-card="{key}" data-x="{x}" data-y="{y}" data-w="{w}" data-h="{h}">')
-    rect('nodes', x, y, w, h, 'white', '#dce4ee', 14)
-    compact = h <= 88
-    icon_y, title_y, body_y = (12, 31, 58) if compact else (16, 38, 69)
-    rect('nodes', x + 16, y + icon_y, 30, 30, '#f0f4fa', 'none', 9)
-    put('nodes', icon(kind, logo, x + 21, y + icon_y + 5, 20))
-    text(x + 56, y + title_y, title, 18, INK, 650, layer='nodes')
-    for i, label in enumerate(lines):
-        text(x + 18, y + body_y + 21 * i, label, 14, MUTED, layer='nodes')
-    put('nodes', '</g>')
-
-
-def arrow(points, color=BLUE, both=False, dashed=False):
-    path = 'M' + ' L'.join(f'{x},{y}' for x, y in points)
-    dash = 'stroke-dasharray="5 5"' if dashed else ''
-    marker = 'direct' if color == TEAL else 'request'
-    start = f'marker-start="url(#back-{marker})"' if both else ''
-    put('edges', f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" {dash} {start} marker-end="url(#arrow-{marker})"/>')
-
-
-# Heading and execution boundary.
-rect('base', 0, 0, W, H, '#f8fafc', 'none', 0)
-text(48, 38, 'DAEVIS  /  SYSTEM ARCHITECTURE', 12, MUTED, 700, letter_spacing='2')
-text(48, 83, '대비스 시스템 아키텍처', 32, INK, 750)
-text(48, 116, '요청이 들어오는 곳, 판단하는 곳, 실제로 실행하는 곳을 구분합니다.', 17, MUTED)
-rect('base', 326, 148, 918, 934, '#f0f4f9', '#c1cfdf', 24, stroke_dasharray='8 6')
-rect('base', 1092, 132, 128, 32, '#f8fafc', 'none', 0)
-put('labels', dev('amazonwebservices/amazonwebservices-original-wordmark', 1100, 130, 48, 29))
-text(1156, 152, '실행 영역', 13, MUTED, 600)
-for x, label in ((48, 'DEVICE  /  내 기기'), (348, 'RELAY  /  항상 켜짐'),
-                 (692, 'AGENT  /  필요할 때 실행'), (1276, 'SERVICES  /  외부 연결')):
-    text(x, 187, label, 12, MUTED, 700, letter_spacing='.5')
-
-# Devices: the desktop app is also the remote-control executor.
-card('pc', 48, 220, 244, 144, 'Windows PC', ['Daevis 앱 · 호출어 인식', '화면·파일·입력 실행', '음성 응답 · 원격 제어 스위치'], logo='monitor')
-card('phone', 48, 404, 244, 130, '휴대폰', ['앱·음성으로 요청', '알람·전화 실행 노드'], logo='smartphone')
-card('discord', 48, 574, 244, 130, 'Discord', ['소유자 DM · 서버 멘션', '대화·알림·결제 승인'], kind='si', logo='discord')
-
-# Always-on relay.
-rect('base', 348, 220, 268, 484, 'white', '#cbd9e8', 18)
-put('nodes', si('python', 368, 241, 28))
-text(408, 264, '상시 중계 서버', 20, INK, 700)
-text(368, 291, '전원 봇 + 작업 큐', 14, MUTED)
-for y in (312, 414, 496, 608):
-    put('nodes', f'<path d="M368,{y} H596" stroke="#e6ecf3"/>')
-text(368, 345, '요청과 결과 중계', 17, INK, 650)
-text(368, 372, '작업 큐 · 진행 · 대화 기록', 14, MUTED)
-text(368, 394, '결제 답변 · 파일 첨부', 14, MUTED)
-text(368, 448, '필요할 때 본체 켜기', 17, INK, 650)
-text(368, 476, 'PC·폰 요청을 본체로 전달', 14, MUTED)
-text(368, 530, '정해진 명령 바로 처리', 17, INK, 650)
-text(368, 558, '시간·날짜 · 기기 전원', 14, MUTED)
-text(368, 580, '모델 호출 없이 응답', 14, MUTED)
-badge(368, 631, '상시 실행', 84, '#e4f3ef', TEAL)
-text(368, 682, '본체가 꺼져 있어도 요청 수신', 13, MUTED)
-
-# Main agent. A standby holds imports, never an active request lease.
-rect('base', 668, 220, 560, 840, '#f9fbfe', '#cbd9e8', 18)
-text(692, 260, '에이전트 서버', 22, INK, 700)
-badge(1094, 240, 'ARM · 4GB', 110, '#e4f3ef', TEAL)
-card('gateway', 692, 292, 224, 112, '소유자 관문', ['Discord · 요청별 대화', '권한과 대화 범위 확인'], logo='shield-check')
-card('hermes', 956, 292, 248, 112, 'Hermes 실행부', ['격리 worker · 1개 사전 준비', '모델과 도구를 번갈아 호출'], kind='png', logo='nous')
-card('direct', 692, 448, 224, 104, '정형 요청 처리', ['카톡 · 길찾기 · 모델 우회'], logo='route')
-card('mcp', 956, 448, 248, 104, 'daevis MCP', ['도구 허용 목록 · 요청 권한'], logo='plug')
-
-# Capabilities are grouped, rather than repeating every tool function.
-rect('base', 692, 600, 512, 338, '#edf3fa', 'none', 16)
-text(712, 632, '실행 도구', 18, INK, 700)
-text(712, 653, '도구 연결은 요청마다 새로 생성', 13, MUTED)
-card('web', 712, 672, 224, 74, '웹·메일·지도', ['검색 · 로그인 세션'], logo='globe')
-card('pc-tools', 956, 672, 224, 74, 'PC 원격 제어', ['중계 → 내 PC에서 실행'], logo='monitor')
-card('android', 712, 758, 224, 74, 'Android·카톡', ['ReDroid · 화면 기반 조작'], kind='si', logo='android')
-card('code', 956, 758, 224, 74, '코드 실행', ['일회용 Docker · 결과 파일'], kind='si', logo='docker')
-card('memory', 712, 844, 224, 74, '기억·대화', ['SQLite · 요청별 기록'], kind='si', logo='sqlite')
-card('workflow', 956, 844, 224, 74, '예약·자동화', ['예약 루프 · n8n'], kind='si', logo='n8n')
-card('operations', 692, 968, 512, 72, '운영과 실행 제어', ['상태 점검 · 유휴 종료 · 요청별 권한 · 반복 제한'], logo='activity')
-
-# External providers are outside the AWS execution boundary.
-card('models', 1276, 292, 276, 112, '추론 모델', ['ChatGPT 구독 · Claude 대체', '코드 관문을 통과한 요청 처리'], kind='png', logo='openai')
-card('services', 1276, 600, 276, 224, '연결된 서비스', ['웹 검색 · 서비스 페이지', '네이버 메일 · 로그인', '네이버 지도 · 카카오 로컬'], logo='globe')
-card('locations', 1276, 864, 276, 176, '실행 위치 구분', ['PC 조작 → 내 Windows PC', '코드 실행 → 본체의 Docker', '앱 조작 → 서버의 ReDroid'], logo='layers')
-
-# Main requests. All paths stay in the gutters, never across component text.
-arrow([(292, 292), (348, 292)], both=True)
-arrow([(292, 462), (348, 462)], both=True)
-arrow([(616, 348), (692, 348)])
-text(653, 335, 'long-poll', 11, BLUE, text_anchor='middle')
-arrow([(292, 638), (316, 638), (316, 738), (644, 738), (644, 348)])
-put('edges', '<circle cx="644" cy="348" r="4" fill="#3068c8"/>')
-text(465, 729, 'Discord는 본체가 직접 수신', 13, BLUE, text_anchor='middle')
-arrow([(916, 348), (956, 348)])
-arrow([(1204, 348), (1276, 348)], both=True)
-text(1240, 334, '추론', 12, BLUE, text_anchor='middle')
-arrow([(804, 404), (804, 448)], color=TEAL)
-arrow([(1080, 404), (1080, 448)])
-text(1096, 431, 'stdio', 12, BLUE)
-arrow([(804, 552), (804, 600)], color=TEAL)
-arrow([(1080, 552), (1080, 600)])
-arrow([(1204, 626), (1276, 626)])
-
-# Quiet legend fills no runtime boundary and makes the arrows self-contained.
-text(48, 837, '흐름 읽기', 16, INK, 650)
-arrow([(48, 866), (84, 866)])
-text(96, 871, '요청 · 결과 전달', 14, MUTED)
-arrow([(48, 902), (84, 902)], color=TEAL)
-text(96, 907, '모델을 거치지 않는 경로', 14, MUTED)
-text(48, 950, '점선 테두리 = AWS 실행 영역', 13, MUTED)
-text(48, 978, '소유자 요청으로 시작하고,', 14, MUTED)
-text(48, 1000, '결제 단계에서 승인을 받습니다.', 14, MUTED)
-
-# A separate sequence keeps the long PC return path out of the overview.
-text(48, 1122, 'PC 제어 · 파일 전달의 왕복 경로', 20, INK, 700)
-steps = [
-    ('request', '본체 도구', ['pc_* 요청'], 'plug'),
-    ('queue', '상시 중계', ['작업 큐 · long-poll'], 'server'),
-    ('execute', '내 PC 에이전트', ['화면·파일·입력 실행'], 'monitor'),
-    ('attachment', '중계 첨부 저장', ['파일 ID · 다운로드 링크'], 'file-up'),
-    ('result', '본체 결과 처리', ['첨부 준비 · 답변 생성'], 'inbox'),
-    ('delivery', 'Discord · 앱', ['답변 · 첨부 · 파일 받기'], 'send'),
-]
-for i, (key, title, lines, logo) in enumerate(steps):
-    x = 48 + i * 256
-    card('flow-' + key, x, 1140, 222, 88, title, lines, logo=logo)
-    if i < len(steps) - 1:
-        arrow([(x + 222, 1184), (x + 256, 1184)])
-text(48, 1271, '도구별 호출 이름과 연결 코드는 README의 MCP 도구 지도에서 확인할 수 있습니다.', 13, MUTED)
-
-STYLE = '<style>text{font-family:"Malgun Gothic","Noto Sans KR",Arial,sans-serif}path{stroke-linecap:round}</style>'
-DEFS = '<defs>'
-for marker, color in (('request', BLUE), ('direct', TEAL)):
-    DEFS += (f'<marker id="arrow-{marker}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
-             f'<path d="M1 1 L9 5 L1 9" fill="none" stroke="{color}" stroke-width="1.7"/></marker>'
-             f'<marker id="back-{marker}" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
-             f'<path d="M9 1 L1 5 L9 9" fill="none" stroke="{color}" stroke-width="1.7"/></marker>')
-DEFS += '</defs>'
-svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-labelledby="diagram-title diagram-desc">'
-       '<title id="diagram-title">대비스 시스템 아키텍처</title>'
-       '<desc id="diagram-desc">PC·휴대폰·Discord 요청이 상시 중계 또는 소유자 관문으로 들어가고, Hermes와 MCP 도구를 통해 실행된다. PC 제어와 파일 전달은 상시 중계를 왕복한다.</desc>'
-       + STYLE + DEFS + ''.join(''.join(LAYERS[layer]) for layer in LAYERS) + '</svg>')
+svg = build(icon, dev)
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(svg, encoding='utf-8')
 print(OUT, len(svg))

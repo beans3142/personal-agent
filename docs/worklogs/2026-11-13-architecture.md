@@ -1,12 +1,12 @@
 # 아키텍처 그림을 실행 위치와 요청 흐름 중심으로 재구성
 
-> 2026-11-13 · 실제 Chromium 렌더링으로 원본·초안·수정본 확인 · 최종 카드 23개, 텍스트 93개 배치 검사 통과
+> 2026-11-13 · 상세 기술 구조도 교정 · 컴포넌트·API·프로토콜·저장소 관계와 렌더링 확인
 
 ## 문제
 
 기존 그림은 노드 아래의 작은 설명과 긴 우회선에 의존했다. 현재 구현과 미구현 LangGraph가 같은 구조에 섞여 있었고, 휴대폰 입구·Claude 대체 경로·PC 실행 위치가 충분히 드러나지 않았다. 사용자는 직접 보면서 다이어그램을 다듬도록 요청했다.
 
-## 변경
+## 1차 변경 — 후속 교정 전
 
 `gen_architecture.py`에서 SVG를 다시 구성했다. 원본 SVG를 직접 고치지 않았다.
 
@@ -18,7 +18,7 @@
 - 미구현 LangGraph와 확인하지 않은 상시 호스트 인스턴스 종류 표기를 제거했다.
 - README의 중복 개요 Mermaid는 없애고, 요청 순서·도구 지도는 유지했다. 결제만 승인하는 현재 코드와 어긋난 설명 및 오래된 제한 수치도 맞췄다.
 
-## 직접 확인한 것
+## 1차 시각 검토
 
 Python Playwright의 Chromium으로 SVG를 실제 렌더링하고 화면 이미지를 열어 확인했다. 첫 초안에서 본체 배경에 화살표가 가려지고 작은 카드의 아래 여백이 부족한 것을 발견해 레이어 순서와 간격을 수정했다. 이후 PC 반환 단계도 보강했다.
 
@@ -50,4 +50,27 @@ GitHub 서버가 SVG를 처리한 이후의 모든 브라우저·폰트 조합�
 - 재현: `python scripts/gen_architecture.py docs/architecture.svg`
 - 확인: `python scripts/check_architecture.py --output-dir <미리보기 폴더>`
 
-- 그림·생성 스크립트 커밋: 921a15c
+- 1차 그림·생성 스크립트 커밋: 921a15c
+
+## 후속 교정: 요약 카드가 아니라 상세 기술 구조도
+
+사용자가 첫 재구성이 기능·연결 정보를 줄였고 한국어 명칭도 어색하다고 지적했다. 기존 컴포넌트와 도구 목록을 빼고 설명 카드로 대체한 방향이 요구와 달랐다. 레이아웃 검사 통과를 정보 충실도의 근거처럼 취급해서도 안 됐다.
+
+이번에는 상세 component/deployment graph로 교체했다.
+
+- `Discord Gateway`, `Request Router`, `HermesRunner`, `PreparedExecutor`, `Hermes Worker`, `MCP Server`를 소스와 대응시켰다. `소유자 관문` 등 임의 번역은 제거했다.
+- 12개 MCP 도구 모듈의 실제 tool API와 소스 파일을 복원했다. 설명 문장 대신 식별자를 쓴다.
+- Relay API, Queue/Registry, Attachment Store, Memory/Conversation/Schedule/Device 저장소를 표시했다.
+- HTTPS, Discord Gateway/REST, MCP stdio, SQLite, 파일 IPC와 PC 엔드포인트를 연결선·data flow에 표시했다.
+- Windows의 Desktop App·Whisper·TTS·Agent, 본체의 스케줄러·상태 점검·유휴 종료와 승인 처리를 다시 분리했다.
+- 코드 대조 중 Device Tools가 Device Node API를 호출하는 것처럼 보이던 연결을 같은 Device Registry에 접근하는 관계로 고쳤다. 요청 처리와 worker 준비 관계도 분리했다.
+
+노드와 선의 정의는 규칙대로 `scripts/gen_architecture.py` 안에 유지했다. 중간 편집용 파일은 최종본에 남기지 않았다. 첫 대량 shell 쓰기 명령은 자동 심사에 막혀 변경되지 않았고, 이후 파일 패치로 수정했다.
+
+최종 렌더링은 원본 2240×1660으로 직접 열어 확인했다. 시각 검사기는 새 노드 형식과 실제 글자·아이콘 충돌을 검사하도록 보완했다. 노드 50개·텍스트 168개에서 정의한 검사상 문제는 0개였다. 늘어난 글자는 해설 문장이 아니라 컴포넌트·API·파일·프로토콜 레이블이며, 개수 자체를 품질 지표로 삼지 않는다.
+
+AGENTS.md에도 고도화 시 세부 정보 보존, 표준 용어·코드 식별자 사용, 코드와 연결 의미 대조를 추가했다.
+
+- [교정 후 상세 구조도](assets/2026-11-13-architecture-technical/architecture-full.png)
+- [축소 표시](assets/2026-11-13-architecture-technical/architecture-readme.png)
+- [배치 검사 결과](assets/2026-11-13-architecture-technical/layout-check.json)
