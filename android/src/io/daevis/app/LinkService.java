@@ -95,7 +95,9 @@ public final class LinkService extends Service {
     private void run() {
         SharedPreferences p = getSharedPreferences("daevis", MODE_PRIVATE);
         int failures = 0;
+        AppUpdates.check(this);
         while (running && !Thread.currentThread().isInterrupted()) {
+            if(AppUpdates.installing){pause(1000);continue;}
             if (!p.contains("node")) { stopSelf(); return; }
             if (!hasNetwork()) { pause(10 * 60 * 1000L); continue; }  // Woken early by the network callback.
             String node = p.getString("node", ""), token = p.getString("token", "");
@@ -106,6 +108,7 @@ public final class LinkService extends Service {
                 JSONObject job = reply.optJSONObject("job");
                 if (job != null && "phone_task".equals(job.optString("action"))) PhoneTask.handle(this, node, token, job);
                 else if (job != null) Alarms.handle(this, node, token, job);
+                else AppUpdates.check(this);  // Idle long-poll completion: never interrupt a phone step to update.
             } catch (Relay.RelayException e) {
                 if (e.code == 401) { Log.w(TAG, "registration revoked"); stopSelf(); return; }
                 failures++;

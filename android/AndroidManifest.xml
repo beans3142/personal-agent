@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.daevis.app">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Phone alarms set by Daevis: exact one-shot alarms that survive reboots. -->
@@ -71,6 +73,8 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <activity android:name=".UpdateSetup" android:exported="false" android:excludeFromRecents="true" />
+        <receiver android:name=".UpdateReceiver" android:exported="false" />
         <service
             android:name=".DaevisAccess"
             android:exported="false"

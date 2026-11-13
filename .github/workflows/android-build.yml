@@ -42,6 +42,26 @@ jobs:
           retention-days: 30
 
   # Installs the APK on an emulator, opens it and keeps a screenshot; fails on a crash.
+  publish:
+    needs: [apk, smoke]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: daevis-apk
+      - name: Publish tested update to private phone relay
+        env:
+          PUBLISH_TOKEN: ${{ secrets.DAEVIS_ANDROID_PUBLISH_TOKEN }}
+          UPDATE_URL: ${{ secrets.DAEVIS_ANDROID_UPDATE_URL }}
+        run: |
+          test -n "$PUBLISH_TOKEN" && test -n "$UPDATE_URL"
+          curl --fail --silent --show-error --max-time 90 \
+            -H "Authorization: Bearer $PUBLISH_TOKEN" \
+            -H "X-Daevis-Version: ${{ github.run_number }}" \
+            -H 'Content-Type: application/vnd.android.package-archive' \
+            --data-binary @daevis.apk "$UPDATE_URL/phone/update/publish"
+
   smoke:
     needs: apk
     runs-on: ubuntu-latest

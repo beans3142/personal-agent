@@ -12,6 +12,7 @@ final class PhoneTask {
     private PhoneTask() {}
 
     static void handle(Context c, String node, String token, JSONObject job) {
+        c.getSharedPreferences("daevis", Context.MODE_PRIVATE).edit().putLong("phone_task_at",System.currentTimeMillis()).apply();
         String id = job.optString("id");
         JSONObject payload = job.optJSONObject("payload");
         String status = "failed";

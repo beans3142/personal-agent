@@ -47,6 +47,8 @@ def test(out):
     run('java', '-cp', classes, 'io.daevis.app.UnlockFlowTest')
     run('javac', '-encoding', 'UTF-8', '-d', classes, HERE / 'src/io/daevis/app/UnlockPolicy.java', HERE / 'test/UnlockPolicyTest.java')
     run('java', '-cp', classes, 'io.daevis.app.UnlockPolicyTest')
+    run('javac', '-encoding', 'UTF-8', '-d', classes, HERE / 'src/io/daevis/app/UpdatePolicy.java', HERE / 'test/UpdatePolicyTest.java')
+    run('java', '-cp', classes, 'io.daevis.app.UpdatePolicyTest')
 
 
 def keystore(out):
