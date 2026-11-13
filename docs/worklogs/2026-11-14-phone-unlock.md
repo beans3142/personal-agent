@@ -22,6 +22,8 @@
 
 실사용 폰의 보안 입력칸이 접근성 입력을 허용하는지는 새 APK 설치 후 확인해야 한다. 단위 테스트는 실기기 잠금 해제 성공의 근거가 아니다. 잠금 해제를 실패하면 자동 반복 입력하지 않는다.
 
+GitHub Actions APK 빌드가 통과했고, 산출물 APK를 다운로드해 소유자 Discord DM에 첨부했다. Discord 응답에서 첨부 파일 한 개를 확인했다. 이 시점의 에뮬레이터 기동 검사는 진행 중이며, 실기기에 설치되었다고 주장하지 않는다.
+
 ## 셀프 인터뷰
 
 **왜 서버의 일반 입력 도구로 처리하지 않았습니까?**
@@ -37,4 +39,4 @@
 
 - `agent/phone_secrets.py`, `tests/test_phone_secrets.py`
 - `android/src/io/daevis/app/UnlockFlow.java`, `android/test/UnlockFlowTest.java`
-- 커밋 해시는 후속 검증 기록에 기재한다.
+- 기능 커밋: `d4bc6d1`.
