@@ -22,7 +22,10 @@ final class PhoneTask {
             String op = payload == null ? "" : payload.optString("op");
             JSONObject args = payload == null || payload.optJSONObject("args") == null ? new JSONObject() : payload.optJSONObject("args");
             JSONObject out;
-            if ("screen".equals(op)) {
+            if (!a.ensureAwake()) {
+                // PIN lock: do nothing, report the lock screen so the caller stops.
+                out = a.screen().put("locked", true);
+            } else if ("screen".equals(op)) {
                 out = a.screen();
             } else {
                 switch (op) {
@@ -36,6 +39,7 @@ final class PhoneTask {
                 Thread.sleep("open".equals(op) ? 1800 : 900);  // Let the app react before reading the screen.
                 out = new JSONObject().put("ok", true).put("screen", a.screen());
             }
+            a.scheduleRelock();
             String file = Relay.upload(node, token, "phone-" + op + ".json", out.toString().getBytes(StandardCharsets.UTF_8));
             result.put("data_file", file);
             status = "succeeded";

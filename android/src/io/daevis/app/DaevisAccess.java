@@ -28,7 +28,36 @@ public final class DaevisAccess extends AccessibilityService {
     private final List<AccessibilityNodeInfo> nodes = new ArrayList<>();
     private static final int MAX_NODES = 250;
 
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private volatile boolean wokeUs;
+    private final Runnable relock = () -> {
+        if (wokeUs) { wokeUs = false; performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN); }
+    };
+
     @Override protected void onServiceConnected() { instance = this; }
+
+    /**
+     * Before a step: if the screen is off or a lock screen without PIN is up, turn it on and
+     * dismiss it. Returns false when a PIN is needed (Daevis never enters it).
+     */
+    boolean ensureAwake() throws InterruptedException {
+        main.removeCallbacks(relock);
+        android.app.KeyguardManager km = getSystemService(android.app.KeyguardManager.class);
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        if (km.isDeviceLocked()) return false;
+        if (!pm.isInteractive() || km.isKeyguardLocked()) {
+            wokeUs = true;
+            startActivity(new Intent(this, WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
+            for (int i = 0; i < 20 && (km.isKeyguardLocked() || !pm.isInteractive()); i++) Thread.sleep(150);
+        }
+        return !km.isKeyguardLocked();
+    }
+
+    /** After a step: lock again 20 s later if Daevis was the one that unlocked. */
+    void scheduleRelock() {
+        main.removeCallbacks(relock);
+        if (wokeUs) main.postDelayed(relock, 20000);
+    }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
     @Override public void onInterrupt() {}
     @Override public boolean onUnbind(Intent intent) { instance = null; return super.onUnbind(intent); }

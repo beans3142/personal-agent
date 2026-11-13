@@ -39,7 +39,8 @@ class PhoneLocked(Exception):
 
 def _check_unlocked(screen):
     # Apps cannot come up over the lock screen; Daevis never unlocks the phone.
-    if (screen.get('screen') or screen).get('package') == 'com.android.systemui':
+    view = screen.get('screen') or screen
+    if view.get('locked') or screen.get('locked') or view.get('package') == 'com.android.systemui':
         raise PhoneLocked()
     return screen
 

@@ -82,3 +82,9 @@ def test_locked_phone_stops_at_once_without_pressing_keys():
         return {'ok': True, 'screen': {'package': 'com.android.systemui', 'nodes': [{'i': 0, 'id': 'common_date'}]}}
     out = kakao_send(locked, '반수의신', MSG, sleep=nap)
     assert out['code'] == 'KAKAO_NOT_SENT' and 'locked' in out['reason'] and calls == ['open']
+
+
+def test_pin_locked_phone_reports_locked():
+    def pin_locked(op, args):
+        return {'package': 'com.kakao.talk', 'locked': True, 'nodes': [{'i': 0}]}
+    assert 'locked' in kakao_send(pin_locked, '반수의신', MSG, sleep=nap)['reason']
