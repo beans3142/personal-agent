@@ -108,9 +108,10 @@ public class MainActivity extends Activity {
     private void syncAlarms() {
         if (relay == null) return;
         askNotifications();  // Alarms ring through a notification.
-        Alarms.channel(this);
-        Alarms.schedulePolling(this);
-        calls.execute(() -> Alarms.sync(this));
+        // Alarm setup must never stop the app from opening.
+        try { Alarms.channel(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "channel", e); }
+        try { Alarms.schedulePolling(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "polling", e); }
+        calls.execute(() -> { try { Alarms.sync(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "sync", e); } });
     }
 
     @Override
