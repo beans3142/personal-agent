@@ -19,6 +19,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | | 기능 | 이렇게 말한다 | 처리 방식 | 쓰는 도구 |
 | :-: | --- | --- | --- | --- |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 카톡 보내기 | `엄마 카톡 "곧 도착" 보내줘` | 코드가 바로 전송 (모델 0회) | `kakao_send` |
+| 🔗 | 새 기기 연결 | 새 PC·폰 앱에서 `기기 등록` → 연결된 대비스 화면에서 승인, 또는 `연결 수락해` | 새 기기가 요청하고 4자리 번호로 확인해 승인. 코드 복사 없음 | `device_accept` `device_deny` `device_requests` |
 | ⏰ | 폰 알람 | `일요일 새벽 4시에 알람 맞춰줘` | Galaxy 대비스 앱이 받아 그 시각에 한 번 울림 (31일 이내) | `phone_alarm` |
 | 📅 | 구글 캘린더 | `내일 3시 치과 일정 등록해줘` / `이번 주 일정 알려줘` | 소유자 구글 계정의 Apps Script를 코드가 바로 호출해 일정을 만들고 조회 | `calendar_add` `calendar_list` |
 | 📁 | PC 파일을 구글 드라이브 링크로 | `문서 폴더 보고서 드라이브 링크로 줘` | PC가 파일을 소유자 드라이브의 Daevis 폴더로 직접 올리고 링크를 답함. 파일은 서버를 거치지 않음 (10GB 이하) | `pc_drive_upload` |
@@ -108,7 +109,7 @@ flowchart TD
 flowchart TD
     hermes["🧩 Hermes worker"] -- "MCP stdio" --> mcp["🔌 daevis MCP 서버<br/>허용 목록 · 공개 채널 · 승인 판단"]
     mcp --> r["📖 <b>읽기</b><br/>memory_search<br/>route_search · map_search<br/>web_search · web_fetch<br/>mail_list · mail_read<br/>schedule_list<br/>android_screen<br/>kakao_find_recipient<br/>n8n_list · device_nodes · device_jobs"]
-    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send · kakao_send_image<br/>image_generate · calendar_add · calendar_list · phone_alarm<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_find_content · pc_send_file · pc_drive_upload · pc_save_file<br/>pc_system · pc_shell · run_code"]
+    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send · kakao_send_image<br/>image_generate · calendar_add · calendar_list · phone_alarm<br/>device_accept · device_deny<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_find_content · pc_send_file · pc_drive_upload · pc_save_file<br/>pc_system · pc_shell · run_code"]
     mcp --> c["🧭 <b>조합</b><br/>recipe_list · recipe_run<br/>plan_execute<br/>routine_register · routine_list · routine_update<br/>routine_delete · routine_run<br/><i>허용된 도구만 묶어서 실행</i>"]
 ```
 
