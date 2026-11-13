@@ -31,8 +31,10 @@ public final class DaevisAccess extends AccessibilityService {
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     private volatile boolean wokeUs;
     private volatile String unlockStage = "not_attempted";
+    private android.os.PowerManager.WakeLock screenLease;
     private final Runnable relock = () -> {
         if (wokeUs) { wokeUs = false; performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN); }
+        releaseScreen();
     };
 
     @Override protected void onServiceConnected() { instance = this; }
@@ -45,7 +47,12 @@ public final class DaevisAccess extends AccessibilityService {
         main.removeCallbacks(relock);
         android.app.KeyguardManager km = getSystemService(android.app.KeyguardManager.class);
         android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
-        if (km.isDeviceLocked()) return false;
+        if (km.isDeviceLocked()) {
+            wokeUs=true;
+            startActivity(new Intent(this,WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_NO_ANIMATION));
+            Thread.sleep(300);
+            return false;
+        }
         if (!pm.isInteractive() || km.isKeyguardLocked()) {
             wokeUs = true;
             startActivity(new Intent(this, WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
@@ -54,10 +61,24 @@ public final class DaevisAccess extends AccessibilityService {
         return !km.isKeyguardLocked();
     }
 
-    /** After a step: lock again 20 s later if Daevis was the one that unlocked. */
+    /** Bounded screen lease covers network latency and the agent's thinking time between steps. */
+    void holdScreen() {
+        main.removeCallbacks(relock);
+        if(screenLease==null){
+            android.os.PowerManager pm=getSystemService(android.os.PowerManager.class);
+            screenLease=pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK,"daevis:phone-task");
+            screenLease.setReferenceCounted(false);
+        }
+        screenLease.acquire(150000);
+    }
+
+    private void releaseScreen(){if(screenLease!=null&&screenLease.isHeld())screenLease.release();}
+
+    /** After a step: keep awake up to two minutes for the next agent action, then restore the lock. */
     void scheduleRelock() {
         main.removeCallbacks(relock);
-        if (wokeUs) main.postDelayed(relock, 20000);
+        if (wokeUs) main.postDelayed(relock, 120000);
+        else releaseScreen();
     }
 
     /** Fetch the credential only after finding the system password field, then try exactly once. */
@@ -66,6 +87,7 @@ public final class DaevisAccess extends AccessibilityService {
         unlockStage = "starting";
         boolean success = UnlockFlow.run(new UnlockFlow.Device() {
             AccessibilityNodeInfo field;
+            public void hold(){holdScreen();}
             public boolean locked() { return km.isKeyguardLocked(); }
             public boolean prepare() throws Exception {
                 wokeUs = true;
@@ -90,6 +112,8 @@ public final class DaevisAccess extends AccessibilityService {
             }
             public boolean enter(String password) throws Exception {
                 unlockStage = "entering";
+                // Fetch latency may invalidate the original node. Reacquire without re-fetching or retrying a password.
+                field=findPasswordField();
                 if (field == null || !field.refresh() || !isPasswordField(field)) return false;
                 Bundle args = new Bundle();
                 args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, password);
@@ -228,7 +252,9 @@ public final class DaevisAccess extends AccessibilityService {
     synchronized JSONObject screen() throws JSONException {
         nodes.clear();
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        JSONObject out = new JSONObject().put("package", root == null ? "" : cut(root.getPackageName(), 80));
+        boolean locked=getSystemService(android.app.KeyguardManager.class).isKeyguardLocked();
+        if(locked){for(AccessibilityNodeInfo r:roots())if("com.android.systemui".equals(cut(r.getPackageName(),80))){root=r;break;}}
+        JSONObject out = new JSONObject().put("locked",locked).put("package", root == null ? "" : cut(root.getPackageName(), 80));
         JSONArray list = new JSONArray();
         if (root != null) walk(root, list);
         Rect screen = new Rect();
@@ -239,7 +265,8 @@ public final class DaevisAccess extends AccessibilityService {
     private void walk(AccessibilityNodeInfo n, JSONArray list) throws JSONException {
         if (n == null || nodes.size() >= MAX_NODES) return;
         if (n.isVisibleToUser()) {
-            String text = cut(n.getText(), 80), desc = cut(n.getContentDescription(), 80);
+            boolean sensitive=n.isPassword()||isPasswordField(n);
+            String text = sensitive ? "" : cut(n.getText(), 80), desc = sensitive ? "" : cut(n.getContentDescription(), 80);
             boolean useful = !text.isEmpty() || !desc.isEmpty() || n.isClickable() || n.isEditable() || n.isScrollable();
             if (useful) {
                 Rect b = new Rect();

@@ -17,13 +17,16 @@ final class PhoneTask {
         JSONObject payload = job.optJSONObject("payload");
         String status = "failed";
         JSONObject result = new JSONObject();
+        DaevisAccess a = DaevisAccess.instance;
         try {
-            DaevisAccess a = DaevisAccess.instance;
             if (a == null) throw new IllegalStateException("폰에서 대비스 접근성 권한이 꺼져 있어요. 설정 > 접근성 > 설치된 앱 > 대비스를 켜 주세요.");
+            a.holdScreen();
             String op = payload == null ? "" : payload.optString("op");
             JSONObject args = payload == null || payload.optJSONObject("args") == null ? new JSONObject() : payload.optJSONObject("args");
             JSONObject out;
-            if (!a.ensureAwake() && !a.unlock(node, token, id)) {
+            boolean awake=a.ensureAwake();
+            // Observation and generic gestures must work on the lock screen too; do not hide it from the agent.
+            if (!awake && "open".equals(op) && !a.unlock(node, token, id)) {
                 // Never upload the password field or a partially entered credential.
                 out = a.lockState();
             } else if ("screenshot".equals(op)) {
@@ -50,12 +53,13 @@ final class PhoneTask {
                 Thread.sleep("open".equals(op) ? 1800 : 900);  // Let the app react before reading the screen.
                 out = new JSONObject().put("ok", true).put("screen", a.screen());
             }
-            a.scheduleRelock();
             String file = Relay.upload(node, token, "phone-" + op + ".json", out.toString().getBytes(StandardCharsets.UTF_8));
             result.put("data_file", file);
             status = "succeeded";
         } catch (Exception e) {
             try { result.put("error", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()); } catch (Exception ignored) {}
+        } finally {
+            if(a!=null)a.scheduleRelock();
         }
         try {
             Relay.send("/ack", new JSONObject().put("node", node).put("id", id).put("status", status).put("result", result), token);
