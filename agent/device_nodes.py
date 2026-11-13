@@ -23,9 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.loop import Tool
 
-ACTIONS = frozenset({'phone_alarm', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command', 'pc_task'})
+ACTIONS = frozenset({'phone_alarm', 'phone_alarm_at', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command', 'pc_task'})
+ALARM_HORIZON = 31 * 86400  # Furthest a phone alarm may be set ahead.
 # Remote PC control steps the main agent sends to the owner's PC agent (desktop/remote.py runs them).
-PC_OPS = frozenset({'screenshot', 'windows', 'ui', 'act', 'open', 'find', 'send_file', 'save_file', 'system', 'shell'})
+PC_OPS = frozenset({'screenshot', 'windows', 'ui', 'act', 'open', 'find', 'find_content', 'send_file', 'save_file', 'system', 'shell'})
 PC_TASK_LIMIT = 3000  # JSON characters; the relay body cap is 4096.
 
 
@@ -171,6 +172,12 @@ class DeviceStore:
             if (set(payload) != {'op', 'args'} or payload['op'] not in PC_OPS or not isinstance(payload['args'], dict)
                     or len(json.dumps(payload, ensure_ascii=False)) > PC_TASK_LIMIT):
                 raise ValueError('pc_task requires a known op and an args object')
+        elif action == 'phone_alarm_at':
+            # One alarm at an exact time on the phone app; the job waits until that time.
+            at = payload.get('at')
+            if (set(payload) != {'at', 'text'} or type(at) is not int or not isinstance(payload['text'], str)
+                    or not 1 <= len(payload['text'].strip()) <= 60 or not self.clock() < at <= self.clock() + ALARM_HORIZON):
+                raise ValueError('phone_alarm_at requires a future at (epoch seconds, within 31 days) and text (1..60 chars)')
         elif action == 'phone_call':
             # A contact name or a choice token from the phone; never a raw number.
             if not (set(payload) == {'name'} and isinstance(payload['name'], str) and 1 <= len(payload['name'].strip()) <= 40
@@ -182,6 +189,8 @@ class DeviceStore:
             raise ValueError('invalid request key')
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 300:
             raise ValueError('ttl_seconds must be 1..300')
+        if action == 'phone_alarm_at':
+            ttl_seconds = payload['at'] - self.clock()
         encoded = json.dumps(payload, sort_keys=True)
         with self._db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -299,6 +308,10 @@ def handler_for(store):
                 token = authorization[7:]
                 if self.path == '/poll' and set(body) == {'node'}:
                     result = {'job': store.poll(body['node'], token)}
+                elif (self.path == '/poll' and set(body) == {'node', 'actions'} and isinstance(body['actions'], list)
+                        and body['actions'] and all(isinstance(a, str) for a in body['actions']) and set(body['actions']) <= ACTIONS):
+                    # A receiver that handles only some actions (the phone app takes alarms, not calls).
+                    result = {'job': store.poll(body['node'], token, actions=sorted(set(body['actions'])))}
                 elif self.path == '/ack' and set(body) in ({'node', 'id', 'status'}, {'node', 'id', 'status', 'result'}):
                     store.ack(body['node'], token, body['id'], body['status'], body.get('result'))
                     result = {'ok': True}

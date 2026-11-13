@@ -11,7 +11,7 @@ from .pc_remote import RemoteMixin
 
 BASE='https://game.daehoon.games/pc-power'
 CAPABILITIES=['text_message','pc_shutdown','pc_cancel_shutdown']
-PHONE_CAPABILITIES=['phone_call']
+PHONE_CAPABILITIES=['phone_alarm_at','phone_call']
 
 
 def parse_phone_command(text):

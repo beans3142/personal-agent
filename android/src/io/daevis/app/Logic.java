@@ -32,6 +32,20 @@ public final class Logic {
         return node != null && NODE.matcher(node).matches();
     }
 
+    /** Why a phone alarm job can't be set (null when it can): exact future time within 31 days, short label. */
+    public static String alarmProblem(long atSeconds, String text, long nowSeconds) {
+        if (atSeconds <= nowSeconds) return "past";
+        if (atSeconds > nowSeconds + 31L * 86400) return "too far";
+        String t = text == null ? "" : text.trim();
+        if (t.isEmpty() || t.length() > 60) return "bad label";
+        return null;
+    }
+
+    /** PendingIntent request code for an alarm job id. */
+    public static int alarmCode(String jobId) {
+        return 0x4A000000 ^ String.valueOf(jobId).hashCode();
+    }
+
     public static String edgeRate(int rate) {
         int r = Math.max(-50, Math.min(50, rate));
         return (r >= 0 ? "+" : "") + r + "%";

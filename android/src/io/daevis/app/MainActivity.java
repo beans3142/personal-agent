@@ -104,6 +104,14 @@ public class MainActivity extends Activity {
         handleLaunch(getIntent());
     }
 
+    /** Picks up alarms queued by Daevis now, and keeps a background check running. */
+    private void syncAlarms() {
+        if (relay == null) return;
+        Alarms.channel(this);
+        Alarms.schedulePolling(this);
+        calls.execute(() -> Alarms.sync(this));
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -122,7 +130,7 @@ public class MainActivity extends Activity {
         else listenWhenReady = true;
     }
 
-    @Override protected void onResume() { super.onResume(); visible = true; }
+    @Override protected void onResume() { super.onResume(); visible = true; syncAlarms(); }
     @Override protected void onPause() { visible = false; super.onPause(); }
 
     /** When the answer arrives while the app is in the background, show it as a notification. */
@@ -363,6 +371,7 @@ public class MainActivity extends Activity {
                 prefs.edit().putString("node", reply.getString("node")).putString("token", reply.getString("token"))
                     .putString("label", reply.optString("label")).apply();
                 relay = new Relay(reply.getString("node"), reply.getString("token"), reply.optString("label"));
+                syncAlarms();
                 return new JSONObject().put("ok", true);
             }
             case "send": {

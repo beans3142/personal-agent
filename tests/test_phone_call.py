@@ -130,10 +130,10 @@ def test_store_keeps_small_job_results_and_rejects_large_ones(tmp_path):
     assert store.job_result(job['id']) == {'status': 'succeeded', 'result': {'status': 'called'}}
 
 
-def test_phone_enrollment_is_separate_from_pcs_and_grants_only_calls(tmp_path):
+def test_phone_enrollment_is_separate_from_pcs_and_grants_calls_and_alarms(tmp_path):
     r = PCRegistry(tmp_path / 'pc.sqlite3', clock=lambda: 1000)
     reply = r.redeem(r.invite('내 폰', kind='phone'))
-    assert reply['actions'] == ['phone_call'] and reply['node'].startswith('phone-')
+    assert reply['actions'] == ['phone_alarm_at', 'phone_call'] and reply['node'].startswith('phone-')
     assert r.inventory() == []
     assert [p['label'] for p in r.phone_inventory()] == ['내 폰']
     with pytest.raises(ValueError, match='offline'):

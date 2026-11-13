@@ -25,6 +25,14 @@ public class LogicTest {
         check(throwsIllegal(() -> Logic.registrationCode(code + " " + "B".repeat(43))), "two codes rejected");
 
         check(Logic.validPhone("phone-0123456789abcdef"), "phone node ok");
+        long now = 1_800_000_000L;
+        check(Logic.alarmProblem(now + 3600, "기상", now) == null, "future alarm ok");
+        check(Logic.alarmProblem(now - 1, "기상", now) != null, "past alarm refused");
+        check(Logic.alarmProblem(now + 32L * 86400, "기상", now) != null, "alarm beyond 31 days refused");
+        check(Logic.alarmProblem(now + 60, "", now) != null, "empty alarm label refused");
+        check(Logic.alarmProblem(now + 60, "x".repeat(61), now) != null, "long alarm label refused");
+        check(Logic.alarmCode("0123456789abcdef0123456789abcdef") == Logic.alarmCode("0123456789abcdef0123456789abcdef"), "alarm code stable");
+        check(Logic.alarmCode("a") != Logic.alarmCode("b"), "alarm codes differ");
         check(!Logic.validPhone("pc-0123456789abcdef"), "pc node is not a phone registration");
         check(!Logic.validPhone("../x"), "bad node");
 
