@@ -406,3 +406,10 @@ def test_time_question_bypasses_engine_and_keeps_history(tmp_path, monkeypatch):
     reply = Gateway.turn(fake, 'test-owner', '지금 몇 시야?', lambda *a: False)
     assert '한국 시간' in reply and '모델 호출 0회' in reply
     assert memory.load_history('test-owner')[-1]['role'] == 'assistant'
+
+
+def test_phone_kakao_requests_skip_the_server_quick_path():
+    from agent.gateway import quoted_kakao_message
+    assert quoted_kakao_message('반수의신 카톡 "안녕" 보내줘') is not None
+    assert quoted_kakao_message('내 폰으로 반수의신에게 "안녕" 카톡으로 보내줘') is None
+    assert quoted_kakao_message('폰 카톡으로 반수의신에게 "안녕"이라고 보내줘') is None

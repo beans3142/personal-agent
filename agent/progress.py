@@ -35,7 +35,7 @@ LABELS.update({
     'pc_act': 'PC 조작하는 중', 'pc_open': 'PC에서 파일·프로그램 여는 중',
     'pc_find_files': '파일 이름 검색하는 중', 'pc_find_content': '문서 내용 검색하는 중',
     'pc_send_file': 'PC 파일 전달 준비하는 중', 'pc_drive_upload': 'PC 파일을 구글 드라이브에 올리는 중',
-    'phone_alarm': '폰 알람 맞추는 중', 'phone_screen': '폰 화면 보는 중', 'phone_tap': '폰 누르는 중', 'phone_type': '폰에 입력하는 중', 'phone_key': '폰 버튼 누르는 중', 'phone_open': '폰에서 앱 여는 중', 'phone_scroll': '폰 화면 넘기는 중', 'device_accept': '새 기기 연결 수락하는 중', 'device_deny': '새 기기 연결 거절하는 중', 'device_requests': '연결 요청 확인하는 중', 'calendar_list': '구글 캘린더 확인하는 중', 'calendar_add': '구글 캘린더에 일정 넣는 중', 'pc_save_file': 'PC에 파일 저장하는 중',
+    'phone_alarm': '폰 알람 맞추는 중', 'phone_kakao_send': '폰 카톡으로 보내는 중', 'phone_screen': '폰 화면 보는 중', 'phone_tap': '폰 누르는 중', 'phone_type': '폰에 입력하는 중', 'phone_key': '폰 버튼 누르는 중', 'phone_open': '폰에서 앱 여는 중', 'phone_scroll': '폰 화면 넘기는 중', 'device_accept': '새 기기 연결 수락하는 중', 'device_deny': '새 기기 연결 거절하는 중', 'device_requests': '연결 요청 확인하는 중', 'calendar_list': '구글 캘린더 확인하는 중', 'calendar_add': '구글 캘린더에 일정 넣는 중', 'pc_save_file': 'PC에 파일 저장하는 중',
     'pc_system': 'PC 시스템 작업하는 중', 'pc_shell': 'PC 명령 실행하는 중',
     'run_code': '코드 실행하는 중', 'routine_list': '반복 작업 목록 확인하는 중',
     'routine_register': '반복 작업 등록하는 중', 'routine_update': '반복 작업 수정하는 중',
