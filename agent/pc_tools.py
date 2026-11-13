@@ -44,7 +44,7 @@ class PCLink:
         if not pcs:
             raise PCError('등록된 PC가 없어요. Discord에서 "PC 등록 이름"으로 먼저 등록해 주세요.')
         if label:
-            matches = [p for p in pcs if _norm(p['label']) == _norm(label)]
+            matches = [p for p in pcs if p['node'] == label or _norm(p['label']) == _norm(label)]
             if not matches:
                 raise PCError(f'"{label}" 이름의 등록된 PC가 없어요. 등록된 PC: ' + ', '.join(p['label'] for p in pcs))
             pc = matches[0]
@@ -58,8 +58,14 @@ class PCLink:
 
     def run(self, op, args, pc=None, timeout=60):
         node = self.target(pc)
+        self.last_target = node
         job = self.post('/request', {'node': self.node, 'target': node, 'action': 'pc_task', 'payload': {'op': op, 'args': args},
                                      'request_key': 'pc-' + uuid.uuid4().hex, 'ttl_seconds': min(300, int(timeout) + 30)})
+        if os.environ.get('AGENT_OUTBOX'):
+            folder = Path(os.environ['AGENT_OUTBOX'])
+            folder.mkdir(parents=True, exist_ok=True)
+            with (folder / 'pc-jobs.jsonl').open('a', encoding='utf-8') as handle:
+                handle.write(job['id'] + '\n')
         deadline = self.monotonic() + timeout + 40
         state = {'status': 'queued'}
         while self.monotonic() < deadline:
@@ -125,13 +131,16 @@ def _schema(properties, required=()):
             'required': list(required), 'additionalProperties': False}
 
 
-def build_pc_tools(link, outbox, files_root):
-    """outbox() is the current request's outbox; pc_save_file only reads files under files_root (run_code output)."""
+def build_pc_tools(link, outbox, files_root, remember=None, drive=None):
+    """outbox() is the current request's outbox; pc_save_file only reads files under files_root (run_code output).
+    drive(path) -> {'url', ...} uploads a server file to the owner's Google Drive; without it there is no Drive tool."""
     def call(op, keys=(), timeout=60, after=None):
         def run(args):
             try:
                 step = {k: args[k] for k in keys if k in args}
                 result = link.run(op, step, args.get('pc'), timeout=int(args.get('timeout', timeout)) if op == 'shell' else timeout)
+                if remember and op in {'find', 'find_content'}:
+                    remember('pc_find_files' if op == 'find' else 'pc_find_content', link.last_target, result.get('files', []))
                 if after:
                     result = after(args, result)
                 return json.dumps(result, ensure_ascii=False)
@@ -152,6 +161,18 @@ def build_pc_tools(link, outbox, files_root):
         result['sent_to_owner'] = path.name
         return result
 
+    def to_drive(args, result):
+        meta = result.pop('file')
+        # Kept outside outbox()/files so the gateway does not also attach it to Discord.
+        path = link.fetch(meta, outbox() / 'drive')
+        try:
+            info = drive(path)
+        finally:
+            path.unlink(missing_ok=True)
+        result.update(name=info.get('name') or path.name, drive_url=info['url'],
+                      note='구글 드라이브 Daevis 폴더에 올렸다. 답변에 drive_url 링크를 그대로 적는다.')
+        return result
+
     def save(args):
         path = Path(str(args.get('path', ''))).resolve()
         roots = [Path(files_root).resolve(), outbox().resolve()]
@@ -166,7 +187,11 @@ def build_pc_tools(link, outbox, files_root):
 
     text = {'type': 'string'}
     integer = {'type': 'integer'}
-    return [
+    extra = [] if drive is None else [
+        Tool('pc_drive_upload', 'PC 파일 하나(30MB 이하)를 소유자 구글 드라이브의 Daevis 폴더에 올리고 링크(drive_url)를 돌려준다. '
+                                '"드라이브로", "구글 드라이브 링크로" 요청일 때 쓴다. path는 pc_find_files가 준 전체 경로.',
+             _schema({'path': text}, ('path',)), call('send_file', ('path',), 240, to_drive))]
+    return extra + [
         Tool('pc_list', '등록된 PC와 연결 상태.', _schema({}),
              lambda args: json.dumps(link.pcs(), ensure_ascii=False)),
         Tool('pc_screenshot', 'PC 화면(모든 모니터)을 찍어 소유자에게 이미지로 보낸다. 화면 좌표 = origin + 이미지 좌표 / scale.',
@@ -181,11 +206,15 @@ def build_pc_tools(link, outbox, files_root):
              call('act', ('action', 'element', 'x', 'y', 'text', 'keys', 'amount'))),
         Tool('pc_open', 'PC에서 파일, 폴더, URL, 프로그램(실행 창에 넣는 이름: notepad, chrome, ms-settings: 등)을 연다. 이미 열린 창이 앞으로 올 수도 있으니 소유자의 작업 중인 창인지 pc_windows로 확인한다.',
              _schema({'target': text}, ('target',)), call('open', ('target',))),
-        Tool('pc_find_files', 'PC 전체에서 파일 이름 검색(사용자 폴더와 C 외 드라이브, 최신순). query는 이름에 모두 들어갈 단어, exts는 확장자 목록(예: ["pptx","pdf"]), roots로 폴더 지정. "내 데스크톱/노트북에서"는 보통 등록된 PC 이름(pc 인자)이지 바탕화면 폴더가 아니다. 발표자료처럼 형식이 여럿이면 exts를 넓게(pptx, ppt, key, pdf, html) 잡는다.',
+        Tool('pc_find_files', 'PC 전체에서 파일 이름 검색(사용자 폴더와 C 외 드라이브, 최신순). 결과 파일은 반환된 순서를 바꾸지 말고 1번부터 번호로 표시한다. query는 이름에 모두 들어갈 단어, exts는 확장자 목록(예: ["pptx","pdf"]), roots로 폴더 지정. "내 데스크톱/노트북에서"는 보통 등록된 PC 이름(pc 인자)이지 바탕화면 폴더가 아니다. 발표자료처럼 형식이 여럿이면 exts를 넓게(pptx, ppt, key, pdf, html) 잡는다.',
              _schema({'query': text, 'exts': {'type': 'array', 'items': text}, 'roots': {'type': 'array', 'items': text}, 'limit': integer},
                      ('query',)), call('find', ('query', 'exts', 'roots', 'limit'), 70)),
         Tool('pc_send_file', 'PC 파일 하나(100MB 이하)를 소유자에게 보낸다. 10MB 이하는 Discord 첨부, 더 크면 24시간 다운로드 링크를 돌려주니 답변에 링크를 적는다. path는 pc_find_files가 준 전체 경로.',
              _schema({'path': text}, ('path',)), call('send_file', ('path',), 180, deliver)),
+        Tool('pc_find_content', 'PC 문서 내용 검색. query 단어를 모두 포함하는 txt/md/csv/코드·PDF·docx/pptx/xlsx/ODF 파일을 찾는다. roots로 폴더를 좁히는 것을 권장. 기본 10초·200파일, 최대 30초·2000파일·파일당 8MB. 본문 앞부분만 검색하며 OCR·암호화·구형 Office는 지원하지 않는다. complete=false면 전체 검색 완료가 아니다. 결과 순서를 바꾸지 말고 번호로 표시한다.',
+             _schema({'query': text, 'roots': {'type': 'array', 'items': text}, 'exts': {'type': 'array', 'items': text},
+                      'limit': integer, 'seconds': {'type': 'number'}, 'max_files': integer, 'max_file_bytes': integer}, ('query',)),
+             call('find_content', ('query', 'roots', 'exts', 'limit', 'seconds', 'max_files', 'max_file_bytes'), 60)),
         Tool('pc_save_file', '서버 파일(run_code 결과 등)을 PC의 다운로드 폴더에 저장한다.', _schema({'path': text}, ('path',)), save),
         Tool('pc_system', 'PC 볼륨·미디어·잠금·절전·종료. action: mute/volume_up/volume_down/volume(level 0~100)/play_pause/next/previous/stop/lock/sleep/shutdown/restart/cancel_shutdown. 종료와 재시작은 60초 뒤.',
              _schema({'action': {'type': 'string', 'enum': ['mute', 'volume_up', 'volume_down', 'volume', 'play_pause', 'next', 'previous', 'stop',
@@ -196,5 +225,5 @@ def build_pc_tools(link, outbox, files_root):
     ]
 
 
-PC_TOOL_NAMES = frozenset({'pc_list', 'pc_screenshot', 'pc_windows', 'pc_ui', 'pc_act', 'pc_open', 'pc_find_files', 'pc_send_file',
+PC_TOOL_NAMES = frozenset({'pc_drive_upload', 'pc_list', 'pc_screenshot', 'pc_windows', 'pc_ui', 'pc_act', 'pc_open', 'pc_find_files', 'pc_find_content', 'pc_send_file',
                            'pc_save_file', 'pc_system', 'pc_shell'})

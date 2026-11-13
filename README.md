@@ -19,6 +19,8 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | | 기능 | 이렇게 말한다 | 처리 방식 | 쓰는 도구 |
 | :-: | --- | --- | --- | --- |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 카톡 보내기 | `엄마 카톡 "곧 도착" 보내줘` | 코드가 바로 전송 (모델 0회) | `kakao_send` |
+| 📅 | 구글 캘린더 | `내일 3시 치과 일정 등록해줘` / `이번 주 일정 알려줘` | 소유자 구글 계정의 Apps Script를 코드가 바로 호출해 일정을 만들고 조회 | `calendar_add` `calendar_list` |
+| 📁 | PC 파일을 구글 드라이브 링크로 | `문서 폴더 보고서 드라이브 링크로 줘` | PC 파일을 받아 소유자 드라이브의 Daevis 폴더에 올리고 링크를 답함 (30MB 이하) | `pc_drive_upload` |
 | 🎨 | 그림 만들어 보내기 | `펭귄 그림 만들어서 나한테 카톡으로 보내줘` | ChatGPT 앱으로 그린 그림을 Discord 답에 붙이고, 요청하면 카톡 사진으로 전송 | `image_generate` `kakao_send_image` |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 나와의 채팅에 보내기 | `내 톡방에 이 링크 남겨줘` | 모델 | `kakao_self_send` |
 | 🗺️ | 길찾기 | `경로 "강남역" → "판교역"` | 코드가 바로 조회 (모델 0회) | `route_search` |
@@ -36,8 +38,14 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | ⚡ | 서버 켜기·끄기 | `대비스 온라인` / `대비스 오프라인` | 상시 서버의 전원 봇 | EC2 API |
 | 📱 | Galaxy 앱에서 묻기 | 앱에 적거나 마이크를 누르고 말하기, 디지털 어시스턴트 제스처·빠른 설정 타일로 바로 부르기 | PC 앱과 같은 화면, 같은 대화 기록. 폰의 한국어 TTS로 답을 읽고, 앱을 안 보고 있으면 알림 | `android/` |
 | 🖥️ | PC 앱에서 묻기 | 앱 입력창에 적거나 `대비스, 오늘 일정 알려줘`라고 말하기 | 상시 중계가 받아 본체에 전달하고, 진행 단계·답·기록·결제 승인을 앱에 표시 | `desktop/` |
+| ⏳ | 진행 확인·취소 | `지금 뭐 하고 있어?` / `아까 요청 취소해` | 실행 중인 요청의 단계를 확인하고 이후 처리를 중단. 이미 실행된 전송·기기 동작은 되돌리지 않음 | 요청 제어 |
+| 📂 | 문서 내용 검색 | `문서 폴더에서 강화학습 내용 들어간 발표자료 찾아줘` | 파일명 외에 텍스트·PDF·현대 Office 문서의 본문 앞부분 검색. 시간·파일 수 제한, 이미지 OCR은 제외 | `pc_find_content` |
+| ↪️ | 검색 결과 이어서 선택 | `두 번째 거 보내줘` | 같은 대화 주제의 최근 검색 결과와 PC를 참조. 답변 아래의 파일 선택 번호 사용 | `pc_send_file` |
+| 🔁 | 사용자 반복 작업 | `수업 준비 루틴 등록해줘: 메모장과 수업 폴더를 열어 줘` → `수업 준비` | 최대 8단계를 저장해 호출. `수업 준비 루틴 수정해줘: …`, `수업 준비 루틴 삭제해줘`로 관리 | `routine_*` |
 
 카톡 전송과 길찾기처럼 문장 형태가 정해진 요청은 모델을 부르지 않는다.
+
+카톡 전송이 불확실하면 새로 생긴 보낸 말풍선을 재확인하며 자동 재전송하지 않는다. PC 음성 호출은 첫 인식에서 호출어가 잡히면 소리와 듣기 표시를 내고 인식한 문장을 보여 준다.
 
 ## 전체 구성
 
@@ -99,8 +107,8 @@ flowchart TD
 flowchart TD
     hermes["🧩 Hermes worker"] -- "MCP stdio" --> mcp["🔌 daevis MCP 서버<br/>허용 목록 · 공개 채널 · 승인 판단"]
     mcp --> r["📖 <b>읽기</b><br/>memory_search<br/>route_search · map_search<br/>web_search · web_fetch<br/>mail_list · mail_read<br/>schedule_list<br/>android_screen<br/>kakao_find_recipient<br/>n8n_list · device_nodes · device_jobs"]
-    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send · kakao_send_image<br/>image_generate<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_send_file · pc_save_file<br/>pc_system · pc_shell · run_code"]
-    mcp --> c["🧭 <b>조합</b><br/>recipe_list · recipe_run<br/>plan_execute<br/><i>허용된 도구만 묶어서 실행</i>"]
+    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send · kakao_send_image<br/>image_generate · calendar_add · calendar_list<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_find_content · pc_send_file · pc_drive_upload · pc_save_file<br/>pc_system · pc_shell · run_code"]
+    mcp --> c["🧭 <b>조합</b><br/>recipe_list · recipe_run<br/>plan_execute<br/>routine_register · routine_list · routine_update<br/>routine_delete · routine_run<br/><i>허용된 도구만 묶어서 실행</i>"]
 ```
 
 | 단계 | 설정 | 효과 |

@@ -35,9 +35,10 @@ READ_TOOLS = frozenset({
 })
 PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs",
                            # The owner's PC and the code sandbox: never from a public channel.
-                           "pc_list", "pc_screenshot", "pc_windows", "pc_ui", "pc_act", "pc_open", "pc_find_files",
-                           "pc_send_file", "pc_save_file", "pc_system", "pc_shell", "run_code"})
-DISPATCH_TOOLS = frozenset({"plan_execute", "recipe_run"})
+                           "pc_list", "pc_screenshot", "pc_windows", "pc_ui", "pc_act", "pc_open", "pc_find_files", "pc_find_content",
+                           "pc_send_file", "pc_save_file", "pc_system", "pc_shell", "run_code",
+                           "routine_register", "routine_list", "routine_update", "routine_delete", "routine_run"})
+DISPATCH_TOOLS = frozenset({"plan_execute", "recipe_run", "routine_run"})
 
 
 def scoped_allowlist(allowed, env, private_tools=frozenset(), read_tools=frozenset()):
@@ -95,6 +96,11 @@ class ToolBridge:
     def call(self, name: str, args: dict) -> types.CallToolResult:
         if name not in self.allowed:
             return result("denied: tool is not allowed", True)
+        from .request_tasks import check_cancelled, TaskCancelled
+        try:
+            check_cancelled(os.environ.get('AGENT_OUTBOX'))
+        except TaskCancelled:
+            return result('denied: request cancelled; do not perform more actions', True)
         tool = self.tools[name]
         schema = deepcopy(tool.parameters)
         schema["additionalProperties"] = False
@@ -110,6 +116,7 @@ class ToolBridge:
         try:
             if (tool.needs_approval or (name not in self.read_tools and name not in DISPATCH_TOOLS)) and not self.approve(name, deepcopy(args)):
                 return result("denied: owner approval required", True)
+            check_cancelled(os.environ.get('AGENT_OUTBOX'))
             text = str(tool.run(args))
             if not name.startswith("android_") and len(text) > 8000:
                 text = text[:8000] + "\n[truncated]"
@@ -176,6 +183,10 @@ def build_runtime(data: Path, env) -> ToolBridge:
     tools += build_baemin_tools(android.device)
     from .chat_image import build_image_tools
     tools += build_image_tools()
+    from .google_bridge import build_google_tools, from_env as google_from_env
+    google = google_from_env(env, data / "google-bridge.url")
+    if google:
+        tools += build_google_tools(google)
     tools += build_kakao_self_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'))
     tools += build_kakao_send_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'), notify_candidates=notify if mode == 'discord' else None)
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]
@@ -187,12 +198,39 @@ def build_runtime(data: Path, env) -> ToolBridge:
     if env.get("DAEVIS_AGENT_NODE_TOKEN"):
         from .pc_control import BASE
         from .pc_tools import build_pc_tools, relay_link
-        tools += build_pc_tools(relay_link(BASE, env["DAEVIS_AGENT_NODE_TOKEN"]), outbox, Path(env.get("DAEVIS_SANDBOX_RUNS", RUNS)))
+        from .task_context import scoped_context
+        references = scoped_context(data, env)
+        def remember(source, target, rows):
+            if references is None:
+                return
+            references.remember_results(rows, source=source, target=target)
+            context = references.build_context()
+            outbox().mkdir(parents=True, exist_ok=True)
+            (outbox() / 'file-results.json').write_text(json.dumps(context, ensure_ascii=False), encoding='utf-8')
+        pc_tools = build_pc_tools(relay_link(BASE, env["DAEVIS_AGENT_NODE_TOKEN"]), outbox, Path(env.get("DAEVIS_SANDBOX_RUNS", RUNS)), remember=remember, drive=google.upload if google else None)
+        from .task_context import guard_pc_selection, resolve_ordinal
+        for tool in pc_tools:
+            if tool.name == 'pc_send_file':
+                send = tool.run
+                def guarded_send(args, send=send):
+                    if resolve_ordinal(env.get('DAEVIS_MCP_CURRENT_TEXT', '')) is not None:
+                        try:
+                            args = guard_pc_selection(references, args)
+                        except ValueError as error:
+                            return 'error: ' + str(error)
+                    return send(args)
+                tool = Tool(tool.name, tool.description, tool.parameters, guarded_send, tool.needs_approval)
+            tools.append(tool)
     plugin_tools, plugin_read, plugin_private = load_private_plugin(data, env)
     tools += plugin_tools
     raw = env.get("DAEVIS_MCP_ALLOW_TOOLS", "memory_search,route_search,map_search,android_screen")
     allowed = scoped_allowlist({name.strip() for name in raw.split(",") if name.strip()}, env, plugin_private, plugin_read)
     underlying = [tool for tool in tools if tool.name in allowed and tool.name not in plugin_read]
+    from .routines import build_scoped_routine_tools
+    routines = build_scoped_routine_tools(data, env, underlying, approve)
+    tools += routines
+    if not routines:
+        allowed -= {'routine_register', 'routine_list', 'routine_update', 'routine_delete', 'routine_run'}
     tools += build_recipe_tools(RecipeExecutor(underlying, approve, data / "recipes.json"))
     return ToolBridge(tools, allowed, approve, plugin_read, progress=lambda name, args: record_progress(env.get("AGENT_OUTBOX"), name, args))
 

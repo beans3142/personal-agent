@@ -29,6 +29,18 @@ LABELS = {
     "discord_post_as_me": "Discord 글 올리는 중", "baemin_search": "배민에서 가게 메뉴 모으는 중",
 }
 APP_NAMES = {"baemin": "배민", "kakao": "카톡", "coupang": "쿠팡"}
+LABELS.update({
+    'pc_list': 'PC 연결 확인하는 중', 'pc_screenshot': 'PC 화면 캡처하는 중',
+    'pc_windows': '열린 창 확인하는 중', 'pc_ui': 'PC 화면 요소 읽는 중',
+    'pc_act': 'PC 조작하는 중', 'pc_open': 'PC에서 파일·프로그램 여는 중',
+    'pc_find_files': '파일 이름 검색하는 중', 'pc_find_content': '문서 내용 검색하는 중',
+    'pc_send_file': 'PC 파일 전달 준비하는 중', 'pc_drive_upload': 'PC 파일을 구글 드라이브에 올리는 중',
+    'calendar_list': '구글 캘린더 확인하는 중', 'calendar_add': '구글 캘린더에 일정 넣는 중', 'pc_save_file': 'PC에 파일 저장하는 중',
+    'pc_system': 'PC 시스템 작업하는 중', 'pc_shell': 'PC 명령 실행하는 중',
+    'run_code': '코드 실행하는 중', 'routine_list': '반복 작업 목록 확인하는 중',
+    'routine_register': '반복 작업 등록하는 중', 'routine_update': '반복 작업 수정하는 중',
+    'routine_delete': '반복 작업 삭제하는 중', 'routine_run': '반복 작업 실행하는 중',
+})
 
 
 def _file(outbox):

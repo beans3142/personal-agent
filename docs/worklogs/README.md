@@ -4,7 +4,11 @@
 
 | 날짜 | 글 | 다루는 문제 |
 | --- | --- | --- |
-| 2026-11-14 | [오래 꺼 둔 PC가 깨우기에 안 켜진 이유](2026-11-14-pc-wake-lease.md) | 통신사 DHCP 임대 1시간, 빠른 시작 오진, 긴 미접속 안내 |
+| 2026-11-14 | [구글 캘린더와 드라이브 연결](2026-11-14-google-calendar-drive.md) | 서버의 구글 로그인으로 Apps Script 다리, 일정 만들기·조회, PC 파일을 드라이브 링크로 |
+| 2026-11-14 | [요청 진행·취소와 여섯 가지 사용성 개선](2026-11-14-request-experience.md) | 취소 경합·전송 재확인·음성 피드백·파일 선택·본문 검색·사용자 반복 작업 |
+| 2026-11-14 | [Wake feedback after the first recognition pass](2026-11-14-voice-wake-feedback.md) | Existing HUD feedback, local event transport, red/green tests and limits |
+| 2026-11-14 | [Persist user routines without standing approval](2026-11-14-user-routines.md) | Scoped registry, bounded execution and per-step approval |
+| 2026-11-14 | [오래 꺼 둔 PC가 깨우기에 안 켜진 이유](2026-11-14-pc-wake-lease.md) | 통신사 DHCP 임대 1시간, 빠른 시작 오진, 공유기 포트포워드로 경로 변경 |
 | 2026-11-13 | [ChatGPT 그림을 Discord와 카톡으로](2026-11-13-chatgpt-image-kakao.md) | 구독 앱으로 그림 생성, 전용 앨범으로 사진 하나만 골라 카톡 전송 |
 | 2026-11-13 | [아키텍처 그림 재구성과 시각 검토](2026-11-13-architecture.md) | 실행 경계·요청 분기·PC 왕복, 실제 렌더링과 배치 검사 |
 | 2026-11-13 | [README에서 내부 운영 메모 분리](2026-11-13-readme-scope.md) | AGENTS 작성 규칙, 설정 문서 분리, 실험 메모 정리 |
