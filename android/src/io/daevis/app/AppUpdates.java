@@ -46,9 +46,10 @@ final class AppUpdates {
         long last=prefs.getLong("update_checked",0);
         if(now-last<("failed".equals(prefs.getString("update_state",""))?30000:60000))return;
         if(!prefs.contains("node"))return;
+        String previousState=prefs.getString("update_state","not_checked");
         prefs.edit().putString("update_state","checking").apply();
         String node=prefs.getString("node",""),token=prefs.getString("token","");
-        JSONObject report=status(c);report.remove("latest");report.put("node",node);
+        JSONObject report=status(c);report.remove("latest");report.put("state",previousState).put("node",node);
         JSONObject meta=Relay.send("/phone/update/check",report,token);
         long version=meta.getLong("version");
         PackageManager pm=c.getPackageManager();

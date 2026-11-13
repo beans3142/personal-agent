@@ -48,9 +48,12 @@ public final class DaevisAccess extends AccessibilityService {
         android.app.KeyguardManager km = getSystemService(android.app.KeyguardManager.class);
         android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
         if (km.isDeviceLocked()) {
-            wokeUs=true;
-            startActivity(new Intent(this,WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_NO_ANIMATION));
-            Thread.sleep(300);
+            // A screenshot after a swipe must not replace the credential challenge we just opened.
+            if(!pm.isInteractive()) {
+                wokeUs=true;
+                startActivity(new Intent(this,WakeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_NO_ANIMATION));
+                Thread.sleep(300);
+            }
             return false;
         }
         if (!pm.isInteractive() || km.isKeyguardLocked()) {
