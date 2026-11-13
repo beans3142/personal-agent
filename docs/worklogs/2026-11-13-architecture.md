@@ -74,3 +74,5 @@ AGENTS.md에도 고도화 시 세부 정보 보존, 표준 용어·코드 식별
 - [교정 후 상세 구조도](assets/2026-11-13-architecture-technical/architecture-full.png)
 - [축소 표시](assets/2026-11-13-architecture-technical/architecture-readme.png)
 - [배치 검사 결과](assets/2026-11-13-architecture-technical/layout-check.json)
+
+- 상세 구조도 교정 커밋: 787a7e6
