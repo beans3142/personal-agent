@@ -6,9 +6,9 @@ import re
 import socket
 import time
 
-# The desktop's ISP lease is about one hour (3618 s on the NIC). After a longer
-# power-off the ISP drops the address binding and a unicast packet cannot reach
-# the powered-off PC, so a long-offline wake is reported as likely to fail.
+# The packet goes to the home router, which forwards UDP 9 to the PC's reserved
+# LAN address. After a long power-off the router may no longer know which port
+# the PC is on, so a long-offline wake is not promised; it asks for the button.
 LEASE_SECONDS = 3600
 
 
@@ -47,6 +47,5 @@ def offline_seconds(registry, node):
 def wake_reply(label, offline):
     text = label + ' 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.'
     if offline is not None and offline > LEASE_SECONDS:
-        text += (f'\n꺼진 지 약 {offline / 3600:.0f}시간이 지났어요. 통신사 IP 임대(1시간)가 끝났으면 신호가 PC까지 가지 못해 켜지지 않아요. '
-                 '안 켜지면 본체 전원 버튼을 눌러 주세요.')
+        text += (f'\n꺼진 지 약 {offline / 3600:.0f}시간이 지났어요. 몇 분 안에 안 켜지면 본체 전원 버튼을 눌러 주세요.')
     return text

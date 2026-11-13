@@ -61,12 +61,13 @@ def test_three_copies_are_sent_without_waiting_in_tests(tmp_path):
     assert sent==[('203.0.113.9',9)]*3
 
 
-def test_long_offline_wake_warns_about_the_isp_lease():
+def test_long_offline_wake_reports_offline_time_without_the_old_isp_lease_claim():
+    # The PC now sits behind the home router, which keeps the ISP lease itself.
     from agent.pc_wake import wake_reply
-    assert '임대' not in wake_reply('데스크톱',1800)
-    assert '임대' not in wake_reply('데스크톱',None)
+    assert '전원 버튼' not in wake_reply('데스크톱',1800)
+    assert '전원 버튼' not in wake_reply('데스크톱',None)
     long=wake_reply('데스크톱',15*3600)
-    assert '약 15시간' in long and '임대' in long and '전원 버튼' in long
+    assert '약 15시간' in long and '전원 버튼' in long and '임대' not in long
 
 
 def test_offline_time_comes_from_the_pc_heartbeat():
