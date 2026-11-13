@@ -47,3 +47,32 @@ def test_power_bot_keeps_guild_state_for_owner_mention_checks():
     from agent.power_bot import PowerBot
     from types import SimpleNamespace
     assert PowerBot(1,SimpleNamespace()).intents.guilds is True
+
+
+def test_three_copies_are_sent_without_waiting_in_tests(tmp_path):
+    p=tmp_path/'pc.json';p.write_text(json.dumps({'address':'203.0.113.9','mac':'02:00:00:00:00:01'}))
+    sent=[]
+    class Socket:
+        def __enter__(self):return self
+        def __exit__(self,*_):pass
+        def settimeout(self,_):pass
+        def sendto(self,packet,target):sent.append(target);return len(packet)
+    assert wake_pc(p,socket_factory=lambda *a:Socket(),pause=lambda _:None)['packets']==3
+    assert sent==[('203.0.113.9',9)]*3
+
+
+def test_long_offline_wake_warns_about_the_isp_lease():
+    from agent.pc_wake import wake_reply
+    assert '임대' not in wake_reply('데스크톱',1800)
+    assert '임대' not in wake_reply('데스크톱',None)
+    long=wake_reply('데스크톱',15*3600)
+    assert '약 15시간' in long and '임대' in long and '전원 버튼' in long
+
+
+def test_offline_time_comes_from_the_pc_heartbeat():
+    from types import SimpleNamespace
+    from agent.pc_wake import offline_seconds
+    reg=SimpleNamespace(clock=lambda:10_000,list_nodes=lambda:[{'name':'pc-a','last_seen':4_000},{'name':'pc-b','last_seen':None}])
+    assert offline_seconds(reg,'pc-a')==6_000
+    assert offline_seconds(reg,'pc-b') is None and offline_seconds(reg,'missing') is None
+    assert offline_seconds(SimpleNamespace(list_nodes=lambda:1/0),'pc-a') is None

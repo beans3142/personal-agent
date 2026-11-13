@@ -4,6 +4,12 @@ import json
 from pathlib import Path
 import re
 import socket
+import time
+
+# The desktop's ISP lease is about one hour (3618 s on the NIC). After a longer
+# power-off the ISP drops the address binding and a unicast packet cannot reach
+# the powered-off PC, so a long-offline wake is reported as likely to fail.
+LEASE_SECONDS = 3600
 
 
 def pc_power_command(text):
@@ -11,7 +17,7 @@ def pc_power_command(text):
                              (text or '').strip(),re.I))
 
 
-def wake_pc(config_path, socket_factory=socket.socket):
+def wake_pc(config_path, socket_factory=socket.socket, repeats=3, pause=time.sleep):
     config=json.loads(Path(config_path).read_text(encoding='utf-8'))
     address=ipaddress.IPv4Address(config['address'])
     if address.is_multicast or address.is_unspecified or address.is_loopback or str(address)=='255.255.255.255':
@@ -22,6 +28,25 @@ def wake_pc(config_path, socket_factory=socket.socket):
     packet=b'\xff'*6+bytes.fromhex(mac.replace(':',''))*16
     with socket_factory(socket.AF_INET,socket.SOCK_DGRAM) as sender:
         sender.settimeout(5)
-        sent=sender.sendto(packet,(str(address),9))
-    if sent!=len(packet):raise OSError('incomplete wake packet')
-    return {'packet_sent':True,'boot_confirmed':False}
+        for attempt in range(repeats):
+            # UDP has no delivery receipt; a few copies cover a single lost packet.
+            if attempt:pause(.2)
+            if sender.sendto(packet,(str(address),9))!=len(packet):raise OSError('incomplete wake packet')
+    return {'packet_sent':True,'boot_confirmed':False,'packets':repeats}
+
+
+def offline_seconds(registry, node):
+    """Seconds since the PC client last reported in, or None when unknown."""
+    try:
+        seen = next((n['last_seen'] for n in registry.list_nodes() if n['name'] == node), None)
+        return max(0, registry.clock() - seen) if seen else None
+    except Exception:
+        return None
+
+
+def wake_reply(label, offline):
+    text = label + ' 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.'
+    if offline is not None and offline > LEASE_SECONDS:
+        text += (f'\n꺼진 지 약 {offline / 3600:.0f}시간이 지났어요. 통신사 IP 임대(1시간)가 끝났으면 신호가 PC까지 가지 못해 켜지지 않아요. '
+                 '안 켜지면 본체 전원 버튼을 눌러 주세요.')
+    return text

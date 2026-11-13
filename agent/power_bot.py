@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import discord
 
 from .power import PowerControl, power_command
-from .pc_wake import pc_power_command, wake_pc
+from .pc_wake import offline_seconds, pc_power_command, wake_pc, wake_reply
 from pathlib import Path
 from .pc_control import PCRegistry, parse_pc_command, parse_phone_command, pc_handler, BASE
 
@@ -175,7 +175,8 @@ class PowerBot(discord.Client):
                 await message.channel.send(pc['label']+'의 깨우기 설정은 아직 등록되지 않았어요. 다른 PC를 대신 켜지 않습니다.')
                 return
             await asyncio.to_thread(wake_pc,config_path)
-            await message.channel.send(pc['label']+' 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.')
+            offline=await asyncio.to_thread(offline_seconds,registry,pc['node'])
+            await message.channel.send(wake_reply(pc['label'],offline))
             return
         job=await asyncio.to_thread(registry.submit,label,action,'discord-'+str(message.id))
         if action=='shutdown':
@@ -196,8 +197,15 @@ class PowerBot(discord.Client):
     async def handle(self, channel, command: str) -> None:
         if command == 'pc_on':
             try:
-                await asyncio.to_thread(wake_pc, Path(os.environ.get('PC_WAKE_CONFIG','data/pc-wake.json')))
-                await channel.send('PC 깨우기 신호를 보냈어요. 부팅 성공은 아직 확인되지 않았어요.')
+                config_path = Path(os.environ.get('PC_WAKE_CONFIG','data/pc-wake.json'))
+                await asyncio.to_thread(wake_pc, config_path)
+                offline = None
+                registry = getattr(self, 'pc_registry', None)
+                if registry:
+                    import json
+                    node = json.loads(config_path.read_text()).get('pc_node')
+                    offline = await asyncio.to_thread(offline_seconds, registry, node)
+                await channel.send(wake_reply('PC', offline))
             except (OSError, ValueError, KeyError):
                 await channel.send('PC 깨우기 신호를 보내지 못했어요. 저장된 PC 설정을 확인해야 해요.')
             return
