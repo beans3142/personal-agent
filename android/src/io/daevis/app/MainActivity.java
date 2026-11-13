@@ -114,6 +114,7 @@ public class MainActivity extends Activity {
         calls.execute(() -> { try { Alarms.sync(this); } catch (RuntimeException e) { android.util.Log.w("DaevisAlarm", "sync", e); } });
         LinkService.start(this);
         askBatteryExemption();
+        askAccessibility();
     }
 
     @Override
@@ -155,6 +156,18 @@ public class MainActivity extends Activity {
     }
 
     /** Ask once for notification permission (Android 13+), the first time a request is sent. */
+    /** Phone control needs the accessibility service; open its settings once if it is off. */
+    private void askAccessibility() {
+        if (DaevisAccess.instance != null || prefs.getBoolean("asked_access", false)) return;
+        prefs.edit().putBoolean("asked_access", true).apply();
+        runOnUiThread(() -> android.widget.Toast.makeText(this, "설치된 앱 > 대비스 폰 조작을 켜 주세요", android.widget.Toast.LENGTH_LONG).show());
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } catch (RuntimeException e) {
+            android.util.Log.w("DaevisLink", "accessibility settings", e);
+        }
+    }
+
     /** Samsung stops background connections unless the app is exempt; ask once. */
     @SuppressWarnings("BatteryLife")
     private void askBatteryExemption() {

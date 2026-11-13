@@ -11,7 +11,7 @@ from .pc_remote import RemoteMixin
 
 BASE='https://game.daehoon.games/pc-power'
 CAPABILITIES=['text_message','pc_shutdown','pc_cancel_shutdown']
-PHONE_CAPABILITIES=['phone_alarm_at','phone_call']
+PHONE_CAPABILITIES=['phone_alarm_at','phone_call','phone_task']
 
 
 def parse_phone_command(text):
@@ -109,6 +109,7 @@ class PCRegistry(RemoteMixin,DeviceStore):
                 # The owner's main agent may set alarms on a phone the owner registered.
                 if db.execute("SELECT 1 FROM nodes WHERE name='agent-main' AND digest IS NOT NULL").fetchone():
                     db.execute("INSERT OR IGNORE INTO controls VALUES('agent-main',?,'phone_alarm_at')",(node,))
+                    db.execute("INSERT OR IGNORE INTO controls VALUES('agent-main',?,'phone_task')",(node,))
                 db.execute('DELETE FROM pc_invites WHERE digest=?',(digest,))
                 return {'node':node,'token':token,'label':label,'url':BASE,'actions':PHONE_CAPABILITIES}
             if db.execute('SELECT 1 FROM pcs WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')

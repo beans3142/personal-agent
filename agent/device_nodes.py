@@ -23,8 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.loop import Tool
 
-ACTIONS = frozenset({'phone_alarm', 'phone_alarm_at', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command', 'pc_task'})
+ACTIONS = frozenset({'phone_alarm', 'phone_alarm_at', 'phone_task', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command', 'pc_task'})
 ALARM_HORIZON = 31 * 86400  # Furthest a phone alarm may be set ahead.
+# Phone control steps the main agent sends to the Galaxy app (accessibility service).
+PHONE_OPS = frozenset({'screen', 'tap', 'type', 'key', 'open', 'scroll'})
 # Remote PC control steps the main agent sends to the owner's PC agent (desktop/remote.py runs them).
 PC_OPS = frozenset({'screenshot', 'windows', 'ui', 'act', 'open', 'find', 'find_content', 'send_file', 'save_file', 'system', 'shell'})
 PC_TASK_LIMIT = 3000  # JSON characters; the relay body cap is 4096.
@@ -172,6 +174,10 @@ class DeviceStore:
             if (set(payload) != {'op', 'args'} or payload['op'] not in PC_OPS or not isinstance(payload['args'], dict)
                     or len(json.dumps(payload, ensure_ascii=False)) > PC_TASK_LIMIT):
                 raise ValueError('pc_task requires a known op and an args object')
+        elif action == 'phone_task':
+            if (set(payload) != {'op', 'args'} or payload['op'] not in PHONE_OPS or not isinstance(payload['args'], dict)
+                    or len(json.dumps(payload, ensure_ascii=False)) > 3000):
+                raise ValueError('phone_task requires a known op and an args object')
         elif action == 'phone_alarm_at':
             # One alarm at an exact time on the phone app; the job waits until that time.
             at = payload.get('at')
@@ -300,7 +306,7 @@ def wait_poll(store, node, token, actions, wait, sleep=time.sleep, monotonic=tim
         job = store.poll(node, token, actions=actions)
         if job or monotonic() >= deadline:
             return job
-        sleep(1)
+        sleep(0.3)  # Phone control steps should start well within a second.
 
 
 def handler_for(store):

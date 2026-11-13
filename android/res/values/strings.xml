@@ -3,4 +3,6 @@
     <string name="app_name">대비스</string>
     <string name="tile_label">대비스에게 말하기</string>
     <string name="shortcut_talk">말하기</string>
+    <string name="access_label">대비스 폰 조작</string>
+    <string name="access_description">대비스에게 부탁한 일(카톡 보내기, 앱 열기 등)을 이 폰에서 대신 하기 위해 화면을 읽고 누릅니다. 요청이 없을 때는 아무것도 하지 않습니다. 결제 버튼은 승인 뒤에만 누릅니다.</string>
 </resources>

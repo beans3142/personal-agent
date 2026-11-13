@@ -61,6 +61,36 @@ final class Relay {
         }
     }
 
+    /** Upload bytes for the main agent (screen results too big for a job receipt); returns the file id. */
+    static String upload(String node, String token, String name, byte[] data) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(Logic.BASE + "/pc/upload").openConnection();
+        c.setInstanceFollowRedirects(false);
+        c.setConnectTimeout(15000);
+        c.setReadTimeout(60000);
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setFixedLengthStreamingMode(data.length);
+        c.setRequestProperty("Content-Type", "application/octet-stream");
+        c.setRequestProperty("Authorization", "Bearer " + token);
+        c.setRequestProperty("X-Daevis-Node", node);
+        c.setRequestProperty("X-Daevis-Audience", "agent-main");
+        c.setRequestProperty("X-Daevis-Name", java.net.URLEncoder.encode(name, "UTF-8"));
+        try (OutputStream out = c.getOutputStream()) { out.write(data); }
+        int code = c.getResponseCode();
+        if (code != 200) { c.disconnect(); throw new RelayException(code); }
+        try (InputStream in = c.getInputStream()) {
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[4096];
+            int n;
+            while ((n = in.read(chunk)) > 0) buffer.write(chunk, 0, n);
+            return new JSONObject(buffer.toString("UTF-8")).getString("id");
+        } catch (JSONException e) {
+            throw new IOException("invalid upload reply", e);
+        } finally {
+            c.disconnect();
+        }
+    }
+
     private JSONObject post(String path, JSONObject body) throws IOException {
         try {
             return send(path, body.put("node", node), token);

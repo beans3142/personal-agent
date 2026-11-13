@@ -101,10 +101,11 @@ public final class LinkService extends Service {
             String node = p.getString("node", ""), token = p.getString("token", "");
             try {
                 JSONObject reply = Relay.send("/poll", new JSONObject().put("node", node)
-                    .put("actions", new JSONArray().put("phone_alarm_at")).put("wait", WAIT), token, (WAIT + 30) * 1000);
+                    .put("actions", new JSONArray().put("phone_alarm_at").put("phone_task")).put("wait", WAIT), token, (WAIT + 30) * 1000);
                 failures = 0;
                 JSONObject job = reply.optJSONObject("job");
-                if (job != null) Alarms.handle(this, node, token, job);
+                if (job != null && "phone_task".equals(job.optString("action"))) PhoneTask.handle(this, node, token, job);
+                else if (job != null) Alarms.handle(this, node, token, job);
             } catch (Relay.RelayException e) {
                 if (e.code == 401) { Log.w(TAG, "registration revoked"); stopSelf(); return; }
                 failures++;
