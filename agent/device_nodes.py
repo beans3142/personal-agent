@@ -26,7 +26,7 @@ from agent.loop import Tool
 ACTIONS = frozenset({'phone_alarm', 'phone_alarm_at', 'phone_task', 'wol', 'text_message', 'pc_shutdown', 'pc_cancel_shutdown', 'phone_call', 'voice_command', 'pc_task'})
 ALARM_HORIZON = 31 * 86400  # Furthest a phone alarm may be set ahead.
 # Phone control steps the main agent sends to the Galaxy app (accessibility service).
-PHONE_OPS = frozenset({'screen', 'tap', 'type', 'key', 'open', 'scroll'})
+PHONE_OPS = frozenset({'screen', 'screenshot', 'tap', 'long_press', 'swipe', 'type', 'key', 'open', 'scroll'})
 # Remote PC control steps the main agent sends to the owner's PC agent (desktop/remote.py runs them).
 PC_OPS = frozenset({'screenshot', 'windows', 'ui', 'act', 'open', 'find', 'find_content', 'send_file', 'save_file', 'system', 'shell'})
 PC_TASK_LIMIT = 3000  # JSON characters; the relay body cap is 4096.

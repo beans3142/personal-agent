@@ -24,7 +24,15 @@ final class PhoneTask {
             JSONObject out;
             if (!a.ensureAwake() && !a.unlock(node, token, id)) {
                 // Never upload the password field or a partially entered credential.
-                out = new JSONObject().put("locked", true).put("nodes", new org.json.JSONArray());
+                out = a.lockState();
+            } else if ("screenshot".equals(op)) {
+                out = new JSONObject().put("screen", a.screen());
+                try {
+                    byte[] png=a.screenshot();
+                    out.put("image_file",Relay.upload(node,token,"phone-screen.png",png));
+                } catch (Exception error) {
+                    out.put("capture_error",error.getMessage());
+                }
             } else if ("screen".equals(op)) {
                 out = a.screen();
             } else {
@@ -34,6 +42,8 @@ final class PhoneTask {
                     case "key": a.key(args.optString("key")); break;
                     case "open": a.open(args.optString("app")); break;
                     case "scroll": a.scroll(args); break;
+                    case "swipe": a.swipe(args); break;
+                    case "long_press": a.longPress(args); break;
                     default: throw new IllegalArgumentException("모르는 동작이에요: " + op);
                 }
                 Thread.sleep("open".equals(op) ? 1800 : 900);  // Let the app react before reading the screen.

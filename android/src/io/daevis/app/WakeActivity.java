@@ -9,6 +9,7 @@ import android.os.Bundle;
  * needs no PIN (Smart Lock / Extend Unlock), or display its credential challenge.
  */
 public final class WakeActivity extends Activity {
+    private boolean requested;
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -19,6 +20,17 @@ public final class WakeActivity extends Activity {
             getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
         }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        // A dismiss request in onCreate can precede the window becoming visible.
+        getWindow().getDecorView().post(this::showChallenge);
+    }
+
+    private void showChallenge() {
+        if (requested || isFinishing()) return;
+        requested = true;
         KeyguardManager km = getSystemService(KeyguardManager.class);
         if (km.isKeyguardLocked()) {
             km.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {

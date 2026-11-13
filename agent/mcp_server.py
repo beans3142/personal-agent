@@ -34,6 +34,8 @@ READ_TOOLS = frozenset({
     "mail_read", "route_search", "map_search", "android_screen", "baemin_search", "n8n_list", "device_nodes", "device_jobs", "recipe_list",
 })
 PRIVATE_TOOLS = frozenset({"memory_search", "mail_list", "mail_read", "schedule_list", "android_credential", "device_jobs",
+                           "phone_screen", "phone_screenshot", "phone_tap", "phone_long_press", "phone_swipe",
+                           "phone_type", "phone_key", "phone_open", "phone_scroll", "phone_kakao_send",
                            # The owner's PC and the code sandbox: never from a public channel.
                            "pc_list", "pc_screenshot", "pc_windows", "pc_ui", "pc_act", "pc_open", "pc_find_files", "pc_find_content",
                            "pc_send_file", "pc_save_file", "pc_system", "pc_shell", "run_code",
@@ -117,7 +119,10 @@ class ToolBridge:
             if (tool.needs_approval or (name not in self.read_tools and name not in DISPATCH_TOOLS)) and not self.approve(name, deepcopy(args)):
                 return result("denied: owner approval required", True)
             check_cancelled(os.environ.get('AGENT_OUTBOX'))
-            text = str(tool.run(args))
+            output = tool.run(args)
+            if isinstance(output, types.CallToolResult):
+                return output
+            text = str(output)
             if not name.startswith("android_") and len(text) > 8000:
                 text = text[:8000] + "\n[truncated]"
             failed = text.startswith(("error:", "denied:", "blocked:"))
@@ -224,7 +229,7 @@ def build_runtime(data: Path, env) -> ToolBridge:
         from .phone_tools import build_phone_tools, phone_link
         _phone_relay = relay_link(BASE, env["DAEVIS_AGENT_NODE_TOKEN"])
         _phone = phone_link(_phone_relay.post, _phone_relay.download)
-        tools += build_phone_tools(_phone, approve)
+        tools += build_phone_tools(_phone, approve, image_download=_phone_relay.download)
         from .phone_kakao import build_phone_kakao_tool
         tools.append(build_phone_kakao_tool(_phone))
         from .device_pairing import build_pairing_tools

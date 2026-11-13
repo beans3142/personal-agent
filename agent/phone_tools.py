@@ -45,9 +45,24 @@ def phone_link(post, download, node='agent-main', sleep=time.sleep, monotonic=ti
     return run
 
 
-def build_phone_tools(phone, approve):
+def build_phone_tools(phone, approve, image_download=None):
     """phone(op, args) runs one step on the phone; approve(kind, detail) asks the owner."""
     last = {'nodes': None}
+
+    def screenshot(args):
+        from mcp import types
+        import base64
+        try:
+            captured = remember(phone('screenshot', {}))
+            if captured.get('capture_error') or not captured.get('image_file') or image_download is None:
+                return 'error: phone screenshot unavailable: ' + str(captured.get('capture_error', 'no image returned'))
+            _, image = image_download(captured.pop('image_file'))
+            if len(image) > 8_000_000 or not image.startswith(b'\x89PNG\r\n\x1a\n'):
+                return 'error: invalid phone screenshot'
+            return types.CallToolResult(content=[types.TextContent(type='text', text=json.dumps(captured, ensure_ascii=False)),
+                types.ImageContent(type='image', data=base64.b64encode(image).decode(), mimeType='image/png')])
+        except Exception:
+            return 'error: phone screenshot unavailable'
 
     def remember(result):
         screen = result.get('screen') if 'screen' in result else result if 'nodes' in result else None
@@ -83,6 +98,12 @@ def build_phone_tools(phone, approve):
     def schema(props, required=()):
         return {'type': 'object', 'properties': props, 'required': list(required), 'additionalProperties': False}
     return [
+        Tool('phone_screenshot', '소유자 폰의 실제 화면 이미지와 버튼 정보를 함께 본다. 화면을 보고 다음 행동을 판단하고 phone_tap/phone_swipe/phone_type으로 조작한 뒤 다시 확인한다. 캡처 오류면 화면을 봤다고 답하지 않는다.',
+             schema({}), screenshot),
+        Tool('phone_swipe', '폰의 좌표 x1,y1에서 x2,y2까지 스와이프. duration은 100~2000ms. 화면을 보고 좌표를 고른다.',
+             schema({'x1': integer, 'y1': integer, 'x2': integer, 'y2': integer, 'duration': {'type': 'integer', 'minimum': 100, 'maximum': 2000}}, ('x1','y1','x2','y2')), step('swipe', ('x1','y1','x2','y2','duration'))),
+        Tool('phone_long_press', '폰 화면 좌표 x,y를 길게 누른다. duration은 500~2000ms.',
+             schema({'x': integer, 'y': integer, 'duration': {'type':'integer','minimum':500,'maximum':2000}}, ('x','y')), step('long_press', ('x','y','duration'))),
         Tool('phone_screen', '소유자 폰의 지금 화면을 읽는다(앱, 요소 번호 i, 글자, 누를 수 있는지 c, 입력칸 e, 위치 b). 다른 phone_* 도구는 실행 뒤 새 화면(screen)을 같이 돌려준다.',
              schema({}), step('screen', ())),
         Tool('phone_tap', '폰 화면 요소 i(phone_screen 번호)나 좌표 x,y를 누른다. 결제 버튼은 소유자 승인 뒤에만 누른다.',
