@@ -18,34 +18,55 @@ final class AppUpdates {
     static volatile boolean installing;
 
     static void check(Context context) {
-        synchronized(AppUpdates.class){if(running)return;running=true;}
+        synchronized(AppUpdates.class){if(running||installing)return;running=true;}
         Context c=context.getApplicationContext();
         new Thread(() -> {
             try { perform(c); }
-            catch(Exception ignored) { /* A failed update must not stop phone control or expose credentials. */ }
+            catch(Exception ignored) { c.getSharedPreferences("daevis",Context.MODE_PRIVATE).edit().putString("update_state","failed").apply(); }
             finally { synchronized(AppUpdates.class){running=false;} }
         },"daevis-update").start();
+    }
+
+    static void checkNow(Context c){
+        c.getSharedPreferences("daevis",Context.MODE_PRIVATE).edit().remove("update_checked").apply();
+        check(c);
+    }
+
+    static JSONObject status(Context c) throws Exception {
+        PackageInfo info=c.getPackageManager().getPackageInfo(c.getPackageName(),0);
+        android.content.SharedPreferences p=c.getSharedPreferences("daevis",Context.MODE_PRIVATE);
+        return new JSONObject().put("installed",Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode)
+            .put("version_name",info.versionName).put("state",p.getString("update_state","not_checked"))
+            .put("latest",p.getLong("update_latest",0)).put("install_allowed",c.getPackageManager().canRequestPackageInstalls());
     }
 
     private static void perform(Context c) throws Exception {
         android.content.SharedPreferences prefs=c.getSharedPreferences("daevis",Context.MODE_PRIVATE);
         long now=System.currentTimeMillis();
-        if(now-prefs.getLong("update_checked",0)<15*60*1000L || now-prefs.getLong("phone_task_at",0)<120000)return;
+        long last=prefs.getLong("update_checked",0);
+        if(now-last<("failed".equals(prefs.getString("update_state",""))?30000:60000))return;
         if(!prefs.contains("node"))return;
-        prefs.edit().putLong("update_checked",now).apply();
+        prefs.edit().putString("update_state","checking").apply();
         String node=prefs.getString("node",""),token=prefs.getString("token","");
-        JSONObject meta=Relay.send("/phone/update/check",new JSONObject().put("node",node),token);
+        JSONObject report=status(c);report.remove("latest");report.put("node",node);
+        JSONObject meta=Relay.send("/phone/update/check",report,token);
         long version=meta.getLong("version");
         PackageManager pm=c.getPackageManager();
         PackageInfo own=pm.getPackageInfo(c.getPackageName(),PackageManager.GET_SIGNATURES);
         long local=Build.VERSION.SDK_INT>=28 ? own.getLongVersionCode() : own.versionCode;
-        if(!UpdatePolicy.newer(version,local))return;
-        if(prefs.getLong("update_pending",0)==version && now-prefs.getLong("update_pending_at",0)<6*60*60*1000L)return;
+        prefs.edit().putLong("update_checked",now).putLong("update_latest",version).apply();
+        if(!UpdatePolicy.newer(version,local)){prefs.edit().putString("update_state","up_to_date").apply();return;}
+        if(prefs.getLong("update_pending",0)==version && now-prefs.getLong("update_pending_at",0)<6*60*60*1000L){
+            prefs.edit().putString("update_state","awaiting_confirmation").apply();return;
+        }
         if(!pm.canRequestPackageInstalls()){
+            prefs.edit().putString("update_state","permission_required").apply();
             Intent setup=new Intent(c,UpdateSetup.class);
             notify(c,"대비스 자동 업데이트", "한 번만 앱 업데이트 설치를 허용해 주세요",setup);
             return;
         }
+        if(now-prefs.getLong("phone_task_at",0)<120000){prefs.edit().putString("update_state","waiting_for_idle").apply();return;}
+        prefs.edit().putString("update_state","downloading").apply();
         long size=meta.getLong("size");if(size<=0||size>20000000)return;
         File apk=new File(c.getCacheDir(),"daevis-update.apk");
         download(node,token,version,size,apk);
@@ -72,6 +93,7 @@ final class AppUpdates {
             // A new job may have arrived while the APK downloaded. Defer instead of replacing the running app.
             if(System.currentTimeMillis()-prefs.getLong("phone_task_at",0)<120000){installer.abandonSession(id);prefs.edit().remove("update_pending").apply();return;}
             installing=true;
+            prefs.edit().putString("update_state","installing").apply();
             session.commit(PendingIntent.getBroadcast(c,id,callback,flags).getIntentSender());
         }catch(Exception e){installing=false;installer.abandonSession(id);throw e;}
         finally{apk.delete();}

@@ -70,6 +70,7 @@ def build(out, version_code, version_name):
         shutil.rmtree(out)
     (out / 'assets').mkdir(parents=True)
     shutil.copy(ROOT / 'desktop/ui/index.html', out / 'assets/index.html')
+    shutil.copy(HERE / 'update-ui.js', out / 'assets/update-ui.js')
     run(tools / ('aapt2' + EXE), 'compile', '--dir', HERE / 'res', '-o', out / 'res.zip')
     run(tools / ('aapt2' + EXE), 'link', '-o', out / 'base.apk', '-I', android_jar, '--manifest', HERE / 'AndroidManifest.xml',
         '-A', out / 'assets', '--java', out / 'gen', '--min-sdk-version', '26', '--target-sdk-version', '35',

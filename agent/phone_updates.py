@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import threading
+import time
 import zipfile
 
 MAX_APK = 20_000_000
@@ -42,6 +43,19 @@ class UpdateStore:
         if type(version) is not int or version!=meta['version'] or version==0:raise ValueError('update changed')
         return (self.folder/(str(version)+'-'+meta['sha256']+'.apk')).read_bytes()
 
+    def report(self, node, body):
+        if type(body['installed']) is not int or not 0<body['installed']<2**31 or type(body['install_allowed']) is not bool:
+            raise ValueError('invalid client version')
+        if not isinstance(body['state'],str) or len(body['state'])>80 or not isinstance(body['version_name'],str) or len(body['version_name'])>80:
+            raise ValueError('invalid client status')
+        with self.lock:
+            path=self.folder/'clients.json'
+            try:clients=json.loads(path.read_text())
+            except FileNotFoundError:clients={}
+            clients[node]={k:body[k] for k in ('installed','version_name','state','install_allowed')}
+            clients[node]['reported_at']=time.time()
+            temp=self.folder/'clients.tmp';temp.write_text(json.dumps(clients));temp.replace(path)
+
 
 def update_handler(parent, registry, folder, publisher_digest):
     store=UpdateStore(folder)
@@ -63,13 +77,15 @@ def update_handler(parent, registry, folder, publisher_digest):
                 else:
                     if not 0<size<=1024:raise ValueError('invalid request')
                     body=json.loads(self.rfile.read(size))
-                    expected={'node','version'} if self.path.endswith('/apk') else {'node'}
-                    if not isinstance(body,dict) or set(body)!=expected:raise ValueError('invalid request')
+                    expected=[{'node','version'}] if self.path.endswith('/apk') else [{'node'},{'node','installed','version_name','state','install_allowed'}]
+                    if not isinstance(body,dict) or set(body) not in expected:raise ValueError('invalid request')
                     registry._auth(body['node'],token)
                     with registry._db() as db:
                         if not db.execute('SELECT 1 FROM phones WHERE node=?',(body['node'],)).fetchone():raise PermissionError()
                     if self.path.endswith('/apk'):reply=store.download(body['version']);binary=True
-                    else:reply=store.metadata()
+                    else:
+                        if 'installed' in body:store.report(body['node'],body)
+                        reply=store.metadata()
                 code=200
             except PermissionError:code,reply=403,{'error':'unauthorized'}
             except (ValueError,TypeError,KeyError):code,reply=400,{'error':'invalid update request'}

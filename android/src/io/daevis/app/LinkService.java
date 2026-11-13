@@ -32,6 +32,8 @@ public final class LinkService extends Service {
     private Thread loop;
     private final Object online = new Object();
     private ConnectivityManager.NetworkCallback callback;
+    private final android.os.Handler updateTimer=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable updateTick=new Runnable(){public void run(){if(running){AppUpdates.check(LinkService.this);updateTimer.postDelayed(this,60000);}}};
 
     static void start(Context c) {
         if (!c.getSharedPreferences("daevis", MODE_PRIVATE).contains("node")) return;
@@ -49,6 +51,7 @@ public final class LinkService extends Service {
         else startForeground(NOTE, n);
         if (loop == null || !loop.isAlive()) {
             running = true;
+            updateTimer.post(updateTick);
             watchNetwork();
             loop = new Thread(this::run, "daevis-link");
             loop.start();
@@ -122,6 +125,7 @@ public final class LinkService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        updateTimer.removeCallbacks(updateTick);
         if (loop != null) loop.interrupt();
         if (callback != null) {
             try { getSystemService(ConnectivityManager.class).unregisterNetworkCallback(callback); } catch (RuntimeException ignored) {}

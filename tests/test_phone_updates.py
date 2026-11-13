@@ -73,4 +73,9 @@ def test_http_requires_separate_publisher_and_registered_phone(tmp_path):
         assert r.json()['version']==3 and r.headers['Cache-Control']=='no-store'
         r=requests.post(base+'/phone/update/apk',json={'node':'phone-test','version':3},headers=headers,timeout=3)
         assert r.content==apk()
+        report={'node':'phone-test','installed':2,'version_name':'0.1.2','state':'up_to_date','install_allowed':True}
+        r=requests.post(base+'/phone/update/check',json=report,headers=headers,timeout=3)
+        assert r.status_code==200
+        clients=__import__('json').loads((tmp_path/'updates/clients.json').read_text())
+        assert clients['phone-test']['installed']==2
     finally:server.shutdown();server.server_close();thread.join()

@@ -90,7 +90,13 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Host(), "DaevisHost");
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
-                view.evaluateJavascript(SHIM, null);
+                view.evaluateJavascript(SHIM, ignored -> {
+                    try(java.io.InputStream input=getAssets().open("update-ui.js")) {
+                        java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+                        byte[] buffer=new byte[4096];int count;while((count=input.read(buffer))>0)bytes.write(buffer,0,count);
+                        view.evaluateJavascript(bytes.toString("UTF-8"),null);
+                    }catch(java.io.IOException error){android.util.Log.w("DaevisUpdate","version display unavailable");}
+                });
                 pageReady = true;
                 if (listenWhenReady) { listenWhenReady = false; view.postDelayed(() -> listen(null), 800); }
             }
@@ -135,7 +141,7 @@ public class MainActivity extends Activity {
         else listenWhenReady = true;
     }
 
-    @Override protected void onResume() { super.onResume(); visible = true; syncAlarms(); }
+    @Override protected void onResume() { super.onResume(); visible = true; syncAlarms(); AppUpdates.checkNow(this); }
     @Override protected void onPause() { visible = false; super.onPause(); }
 
     /** When the answer arrives while the app is in the background, show it as a notification. */
@@ -393,6 +399,12 @@ public class MainActivity extends Activity {
 
     Object dispatch(String name, JSONArray a) throws Exception {
         switch (name) {
+            case "update_status": return AppUpdates.status(this);
+            case "check_update":
+                AppUpdates.checkNow(this);return AppUpdates.status(this);
+            case "allow_updates":
+                runOnUiThread(() -> startActivity(new Intent(this,UpdateSetup.class)));
+                return new JSONObject().put("ok",true);
             case "boot":
                 return new JSONObject().put("registered", relay != null).put("pc", relay != null ? relay.label : "")
                     .put("settings", settings()).put("voices", voices()).put("status", "")
