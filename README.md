@@ -20,7 +20,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | :-: | --- | --- | --- | --- |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 카톡 보내기 | `엄마 카톡 "곧 도착" 보내줘` | 코드가 바로 전송 (모델 0회) | `kakao_send` |
 | 📅 | 구글 캘린더 | `내일 3시 치과 일정 등록해줘` / `이번 주 일정 알려줘` | 소유자 구글 계정의 Apps Script를 코드가 바로 호출해 일정을 만들고 조회 | `calendar_add` `calendar_list` |
-| 📁 | PC 파일을 구글 드라이브 링크로 | `문서 폴더 보고서 드라이브 링크로 줘` | PC 파일을 받아 소유자 드라이브의 Daevis 폴더에 올리고 링크를 답함 (30MB 이하) | `pc_drive_upload` |
+| 📁 | PC 파일을 구글 드라이브 링크로 | `문서 폴더 보고서 드라이브 링크로 줘` | PC가 파일을 소유자 드라이브의 Daevis 폴더로 직접 올리고 링크를 답함. 파일은 서버를 거치지 않음 (10GB 이하) | `pc_drive_upload` |
 | 🎨 | 그림 만들어 보내기 | `펭귄 그림 만들어서 나한테 카톡으로 보내줘` | ChatGPT 앱으로 그린 그림을 Discord 답에 붙이고, 요청하면 카톡 사진으로 전송 | `image_generate` `kakao_send_image` |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 나와의 채팅에 보내기 | `내 톡방에 이 링크 남겨줘` | 모델 | `kakao_self_send` |
 | 🗺️ | 길찾기 | `경로 "강남역" → "판교역"` | 코드가 바로 조회 (모델 0회) | `route_search` |

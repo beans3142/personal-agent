@@ -11,6 +11,8 @@ function doPost(e) {
     if (body.action === 'calendar_list') return reply({ok: true, events: listEvents(body)});
     if (body.action === 'calendar_add') return reply({ok: true, event: addEvent(body)});
     if (body.action === 'drive_upload') return reply({ok: true, file: upload(body)});
+    // Short-lived owner token for Drive REST calls made by the server (large uploads).
+    if (body.action === 'drive_token') return reply({ok: true, token: ScriptApp.getOAuthToken(), folder: daevisFolder().getId()});
     return reply({ok: false, error: 'unknown action'});
   } catch (err) {
     return reply({ok: false, error: String(err && err.message || err)});
@@ -48,9 +50,13 @@ function addEvent(body) {
   return view(ev);
 }
 
-function upload(body) {
+function daevisFolder() {
   const folders = DriveApp.getFoldersByName(FOLDER);
-  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER);
+  return folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER);
+}
+
+function upload(body) {
+  const folder = daevisFolder();
   const blob = Utilities.newBlob(Utilities.base64Decode(body.data), body.mime || 'application/octet-stream', body.name);
   const file = folder.createFile(blob);
   return {id: file.getId(), name: file.getName(), url: file.getUrl(), size: file.getSize()};

@@ -68,7 +68,7 @@ def test_calendar_list_shows_korean_times():
     assert out['events'][0]['start_kst'] == '2026-11-15 10:00' and out['events'][0]['location'] == '판교'
 
 
-def test_upload_sends_base64_and_refuses_large_files(tmp_path, monkeypatch):
+def test_small_upload_sends_base64_and_refuses_large_files(tmp_path, monkeypatch):
     small = tmp_path / '보고서.txt'
     small.write_bytes(b'hello')
     bridge = FakeBridge([{'ok': True, 'file': {'id': 'f', 'name': '보고서.txt', 'url': 'https://drive.google.com/file/d/f/view', 'size': 5}}])
@@ -90,28 +90,86 @@ def test_from_env_needs_both_url_and_key(tmp_path):
     assert bridge.url == 'https://script.google.com/macros/s/x/exec'
 
 
-def test_pc_file_goes_to_drive_and_returns_the_link(tmp_path):
+def test_drive_session_creates_the_file_first_and_returns_an_upload_address():
+    bridge = FakeBridge([{'ok': True, 'token': 'tok', 'folder': 'fold'}])
+    calls = []
+    def rest(method, url, headers, body):
+        calls.append((method, url, headers, body))
+        if method == 'POST':
+            return 200, {}, json.dumps({'id': 'fid', 'name': 'big.zip', 'webViewLink': 'https://drive.google.com/file/d/fid/view'}).encode()
+        return 200, {'Location': 'https://upload.example/session'}, b''
+    bridge.rest = rest
+    out = bridge.drive_session('big.zip', 1_000_000_000, 'application/zip')
+    assert out == {'id': 'fid', 'url': 'https://drive.google.com/file/d/fid/view', 'session': 'https://upload.example/session'}
+    create, start = calls
+    assert json.loads(create[3]) == {'name': 'big.zip', 'parents': ['fold'], 'mimeType': 'application/zip'}
+    assert create[2]['Authorization'] == 'Bearer tok'
+    assert start[0] == 'PATCH' and '/upload/drive/v3/files/fid?uploadType=resumable' in start[1]
+    assert start[2]['X-Upload-Content-Length'] == '1000000000'
+
+
+class PcLink:
+    """Fake PC: answers stat, launch and status shell commands."""
+    last_target = None
+    def __init__(self, size, states):
+        self.size, self.states, self.commands = size, list(states), []
+    def run(self, op, step, pc, timeout=60):
+        assert op == 'shell'
+        command = step['command']
+        self.commands.append(command)
+        if 'Get-Item' in command:
+            return {'exit_code': 0, 'output': json.dumps({'name': 'big.zip', 'size': self.size}), 'timed_out': False}
+        if 'Start-Process' in command:
+            return {'exit_code': 0, 'output': 'started', 'timed_out': False}
+        state = self.states.pop(0) if self.states else {}
+        return {'exit_code': 0, 'output': json.dumps(state), 'timed_out': False}
+
+
+class Drive:
+    def __init__(self):
+        self.sessions = []
+    def drive_session(self, name, size, mime):
+        self.sessions.append((name, size, mime))
+        return {'id': 'fid', 'url': 'https://drive.google.com/file/d/fid/view', 'session': "https://upload.example/s?x='1"}
+
+
+def drive_tool(link, drive, tmp_path):
     from agent.pc_tools import build_pc_tools
+    tools = {t.name: t for t in build_pc_tools(link, lambda: tmp_path, tmp_path, drive=drive, sleep=lambda _: None, drive_wait=30)}
+    return tools['pc_drive_upload']
 
-    class Link:
-        last_target = None
-        def run(self, op, step, pc, timeout=60):
-            assert op == 'send_file' and step == {'path': r'C:\Users\me\test.txt'}
-            return {'file': {'id': 'att', 'name': 'test.txt', 'size': 5}}
-        def fetch(self, meta, folder):
-            folder.mkdir(parents=True, exist_ok=True)
-            p = folder / meta['name']; p.write_bytes(b'hello'); return p
 
-    uploaded = []
-    def drive(path):
-        uploaded.append(path.name)
-        return {'id': 'f', 'name': path.name, 'url': 'https://drive.google.com/file/d/f/view', 'size': 5}
+def test_pc_uploads_a_large_file_straight_to_drive(tmp_path):
+    link = PcLink(1_000_000_000, [{'state': 'uploading', 'sent': 10, 'size': 1_000_000_000},
+                                  {'state': 'done', 'sent': 1_000_000_000, 'size': 1_000_000_000, 'code': 200}])
+    drive = Drive()
+    out = json.loads(drive_tool(link, drive, tmp_path).run({'path': 'C:/Users/me/big.zip'}))
+    assert out['drive_url'] == 'https://drive.google.com/file/d/fid/view' and out['upload'] == 'done'
+    assert [(name, size) for name, size, _ in drive.sessions] == [('big.zip', 1_000_000_000)]
+    launch = next(c for c in link.commands if 'Start-Process' in c)
+    # The address is a literal inside the script, which is itself a literal in the command: quotes doubled twice.
+    assert "https://upload.example/s?x=''''1" in launch
+    # The file never passes through the server.
+    assert not any(tmp_path.iterdir())
 
-    pc = {t.name: t for t in build_pc_tools(Link(), lambda: tmp_path, tmp_path, drive=drive)}
-    out = json.loads(pc['pc_drive_upload'].run({'path': r'C:\Users\me\test.txt'}))
-    assert out['drive_url'] == 'https://drive.google.com/file/d/f/view' and uploaded == ['test.txt']
-    # Not left where the gateway would also attach it to Discord.
-    assert not (tmp_path / 'files').exists()
+
+def test_slow_upload_returns_the_link_while_the_pc_keeps_going(tmp_path):
+    link = PcLink(5_000_000_000, [{'state': 'uploading', 'sent': 1, 'size': 5_000_000_000}] * 50)
+    out = json.loads(drive_tool(link, Drive(), tmp_path).run({'path': 'C:/big.iso'}))
+    assert out['upload'] == 'uploading' and out['drive_url'] and '계속' in out['note']
+
+
+def test_failed_upload_is_reported(tmp_path):
+    link = PcLink(10, [{'state': 'error', 'error': 'disk'}])
+    out = json.loads(drive_tool(link, Drive(), tmp_path).run({'path': 'C:/a.txt'}))
+    assert out['upload'] == 'error' and 'disk' in out['error']
+
+
+def test_too_large_file_never_opens_a_session(tmp_path):
+    drive = Drive()
+    big = PcLink(11 * 1024 ** 3, [])
+    assert drive_tool(big, drive, tmp_path).run({'path': 'C:/x'}).startswith('error')
+    assert drive.sessions == []
 
 
 def test_drive_tool_is_absent_without_a_bridge(tmp_path):

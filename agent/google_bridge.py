@@ -63,6 +63,30 @@ class GoogleBridge:
             raise GoogleBridgeError(reply.get('error') or 'google bridge failed')
         return reply
 
+    def rest(self, method, url, headers, body):
+        request = urllib.request.Request(url, data=body, method=method, headers=headers)
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return response.status, dict(response.headers), response.read(1_000_000)
+
+    def drive_session(self, name, size, mime):
+        """Create the Drive file now and return a resumable upload address for its content.
+
+        The PC streams the file straight to that address; the owner token stays on the server.
+        """
+        grant = self.call('drive_token')
+        auth = {'Authorization': 'Bearer ' + grant['token']}
+        _, _, body = self.rest('POST', 'https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink',
+                               {**auth, 'Content-Type': 'application/json'},
+                               json.dumps({'name': name, 'parents': [grant['folder']], 'mimeType': mime}).encode())
+        created = json.loads(body)
+        _, headers, _ = self.rest('PATCH', f'https://www.googleapis.com/upload/drive/v3/files/{created["id"]}?uploadType=resumable',
+                                  {**auth, 'Content-Type': 'application/json; charset=UTF-8',
+                                   'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': str(size)}, b'{}')
+        session = headers.get('Location') or headers.get('location')
+        if not session:
+            raise GoogleBridgeError('드라이브 업로드 주소를 받지 못했어요')
+        return {'id': created['id'], 'url': created['webViewLink'], 'session': session}
+
     def upload(self, path):
         path = Path(path)
         size = path.stat().st_size

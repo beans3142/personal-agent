@@ -207,7 +207,7 @@ def build_runtime(data: Path, env) -> ToolBridge:
             context = references.build_context()
             outbox().mkdir(parents=True, exist_ok=True)
             (outbox() / 'file-results.json').write_text(json.dumps(context, ensure_ascii=False), encoding='utf-8')
-        pc_tools = build_pc_tools(relay_link(BASE, env["DAEVIS_AGENT_NODE_TOKEN"]), outbox, Path(env.get("DAEVIS_SANDBOX_RUNS", RUNS)), remember=remember, drive=google.upload if google else None)
+        pc_tools = build_pc_tools(relay_link(BASE, env["DAEVIS_AGENT_NODE_TOKEN"]), outbox, Path(env.get("DAEVIS_SANDBOX_RUNS", RUNS)), remember=remember, drive=google)
         from .task_context import guard_pc_selection, resolve_ordinal
         for tool in pc_tools:
             if tool.name == 'pc_send_file':

@@ -17,6 +17,34 @@ import uuid
 from .loop import Tool
 
 DISCORD_LIMIT = 10 * 1024 * 1024  # Bigger files go to the owner as a download link instead.
+DRIVE_LIMIT = 10 * 1024 ** 3  # Sanity cap for one Drive upload from the PC.
+
+# Runs detached on the PC: streams one file into a Drive resumable upload address
+# and writes its progress to a small JSON status file.
+DRIVE_UPLOADER = r'''$ErrorActionPreference = 'Stop'
+$path = '__PATH__'; $uri = '__URI__'; $status = '__STATUS__'
+function W($o) { ($o | ConvertTo-Json -Compress) | Set-Content -Encoding UTF8 -LiteralPath $status }
+try {
+  $fs = [IO.File]::OpenRead($path); $len = $fs.Length
+  $req = [Net.HttpWebRequest]::Create($uri); $req.Method = 'PUT'; $req.ContentLength = $len
+  $req.AllowWriteStreamBuffering = $false; $req.Timeout = -1; $req.ReadWriteTimeout = 600000
+  $out = $req.GetRequestStream(); $buf = New-Object byte[] (4MB); $sent = 0; $last = [DateTime]::Now
+  W @{state = 'uploading'; sent = 0; size = $len}
+  while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+    $out.Write($buf, 0, $n); $sent += $n
+    if (([DateTime]::Now - $last).TotalSeconds -ge 2) { W @{state = 'uploading'; sent = $sent; size = $len}; $last = [DateTime]::Now }
+  }
+  $out.Close(); $fs.Close()
+  $resp = $req.GetResponse(); $code = [int]$resp.StatusCode; $resp.Close()
+  W @{state = 'done'; sent = $sent; size = $len; code = $code}
+} catch { W @{state = 'error'; error = "$_"} }
+finally { Remove-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue }
+'''
+
+
+def _ps(value):
+    """PowerShell single-quoted literal."""
+    return "'" + str(value).replace("'", "''") + "'"
 FINAL = ('succeeded', 'failed', 'expired', 'uncertain', 'cancelled', 'unknown')
 
 
@@ -131,9 +159,9 @@ def _schema(properties, required=()):
             'required': list(required), 'additionalProperties': False}
 
 
-def build_pc_tools(link, outbox, files_root, remember=None, drive=None):
+def build_pc_tools(link, outbox, files_root, remember=None, drive=None, sleep=time.sleep, drive_wait=150):
     """outbox() is the current request's outbox; pc_save_file only reads files under files_root (run_code output).
-    drive(path) -> {'url', ...} uploads a server file to the owner's Google Drive; without it there is no Drive tool."""
+    drive.drive_session(name, size, mime) opens a Drive upload the PC streams into; without it there is no Drive tool."""
     def call(op, keys=(), timeout=60, after=None):
         def run(args):
             try:
@@ -161,17 +189,53 @@ def build_pc_tools(link, outbox, files_root, remember=None, drive=None):
         result['sent_to_owner'] = path.name
         return result
 
-    def to_drive(args, result):
-        meta = result.pop('file')
-        # Kept outside outbox()/files so the gateway does not also attach it to Discord.
-        path = link.fetch(meta, outbox() / 'drive')
+    def shell(command, pc, timeout=30):
+        result = link.run('shell', {'command': command, 'timeout': timeout}, pc, timeout=timeout + 15)
+        if result.get('exit_code') not in (0, None) or result.get('timed_out'):
+            raise PCError((result.get('output') or 'PC 명령 실패').strip()[-300:])
+        return result.get('output') or ''
+
+    def last_json(text):
+        lines = [line for line in text.strip().splitlines() if line.strip()]
+        return json.loads(lines[-1]) if lines else {}
+
+    def to_drive(args):
+        """The file stays on the PC: the server opens a Drive upload, the PC streams into it."""
+        import mimetypes
         try:
-            info = drive(path)
-        finally:
-            path.unlink(missing_ok=True)
-        result.update(name=info.get('name') or path.name, drive_url=info['url'],
-                      note='구글 드라이브 Daevis 폴더에 올렸다. 답변에 drive_url 링크를 그대로 적는다.')
-        return result
+            pc, path = args.get('pc'), str(args.get('path', ''))
+            info = last_json(shell(f"$f = Get-Item -LiteralPath {_ps(path)}; @{{name = $f.Name; size = $f.Length}} | ConvertTo-Json -Compress", pc))
+            size = int(info['size'])
+            if size > DRIVE_LIMIT:
+                return f'error: {DRIVE_LIMIT // 1024 ** 3}GB가 넘는 파일은 드라이브로 올리지 않아요 ({size // 1024 ** 3}GB)'
+            mime = mimetypes.guess_type(info['name'])[0] or 'application/octet-stream'
+            target = drive.drive_session(info['name'], size, mime)
+            tag = uuid.uuid4().hex[:10]
+            status = f'$env:TEMP\\daevis-drive-{tag}.json'
+            script = DRIVE_UPLOADER.replace('__PATH__', path.replace("'", "''")).replace('__URI__', target['session'].replace("'", "''"))
+            script = script.replace("'__STATUS__'", f'"{status}"')
+            shell(f"$s = Join-Path $env:TEMP 'daevis-drive-{tag}.ps1'; Set-Content -Encoding UTF8 -LiteralPath $s -Value {_ps(script)}; "
+                  f"Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$s; 'started'", pc)
+            state = {}
+            for _ in range(max(1, drive_wait // 5)):
+                sleep(5)
+                state = last_json(shell(f'$p = "{status}"; if (Test-Path $p) {{ Get-Content -Raw $p }} else {{ "{{}}" }}', pc)) or {}
+                if state.get('state') in ('done', 'error'):
+                    break
+            out = {'name': info['name'], 'size': size, 'drive_url': target['url'], 'upload': state.get('state') or 'starting'}
+            if out['upload'] == 'error':
+                out['error'] = state.get('error', '')
+                out['note'] = 'PC에서 드라이브로 올리다 실패했다. 링크의 파일은 비어 있을 수 있다고 알린다.'
+            elif out['upload'] == 'done':
+                out['note'] = 'PC가 드라이브에 직접 올렸다. 답변에 drive_url 링크를 그대로 적는다.'
+            else:
+                out['sent'] = state.get('sent', 0)
+                out['note'] = 'PC가 드라이브로 계속 올리는 중이다. 링크를 주고, 업로드가 끝나야 열린다고 알린다.'
+            return json.dumps(out, ensure_ascii=False)
+        except PCError as error:
+            return f'error: {error}'
+        except Exception as error:
+            return f'error: 드라이브 업로드 준비 실패 ({type(error).__name__})'
 
     def save(args):
         path = Path(str(args.get('path', ''))).resolve()
@@ -188,9 +252,10 @@ def build_pc_tools(link, outbox, files_root, remember=None, drive=None):
     text = {'type': 'string'}
     integer = {'type': 'integer'}
     extra = [] if drive is None else [
-        Tool('pc_drive_upload', 'PC 파일 하나(30MB 이하)를 소유자 구글 드라이브의 Daevis 폴더에 올리고 링크(drive_url)를 돌려준다. '
+        Tool('pc_drive_upload', 'PC 파일 하나(10GB 이하)를 PC가 소유자 구글 드라이브의 Daevis 폴더로 직접 올리고 링크(drive_url)를 돌려준다. '
+                                '파일은 서버를 거치지 않는다. 큰 파일은 upload=uploading으로 먼저 돌아오며 PC가 계속 올린다. '
                                 '"드라이브로", "구글 드라이브 링크로" 요청일 때 쓴다. path는 pc_find_files가 준 전체 경로.',
-             _schema({'path': text}, ('path',)), call('send_file', ('path',), 240, to_drive))]
+             _schema({'path': text}, ('path',)), to_drive)]
     return extra + [
         Tool('pc_list', '등록된 PC와 연결 상태.', _schema({}),
              lambda args: json.dumps(link.pcs(), ensure_ascii=False)),
