@@ -82,6 +82,15 @@ class PCRegistry(RemoteMixin,DeviceStore):
             db.execute('INSERT INTO pc_invites(digest,label,expires,kind) VALUES(?,?,?,?)',(hashlib.sha256(code.encode()).hexdigest(),label.strip(),self.clock()+900,kind))
         return code
 
+    def request(self,source,token,target,action,payload,request_key,ttl_seconds=120):
+        # "phone" means the most recently registered phone that is still enrolled.
+        if target=='phone':
+            with self._db() as db:
+                row=db.execute('SELECT p.node FROM phones p JOIN nodes n ON n.name=p.node WHERE n.digest IS NOT NULL ORDER BY p.rowid DESC LIMIT 1').fetchone()
+            if not row:raise ValueError('no phone registered')
+            target=row['node']
+        return super().request(source,token,target,action,payload,request_key,ttl_seconds)
+
     def redeem(self,code):
         if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9_-]{40,64}',code):raise ValueError('invalid registration')
         digest=hashlib.sha256(code.encode()).hexdigest()
@@ -97,6 +106,9 @@ class PCRegistry(RemoteMixin,DeviceStore):
                 db.execute('INSERT INTO phones VALUES(?,?,?)',(alias,label,node))
                 if db.execute("SELECT 1 FROM nodes WHERE name='voice'").fetchone():
                     db.execute("INSERT OR IGNORE INTO controls VALUES(?,'voice','voice_command')",(node,))
+                # The owner's main agent may set alarms on a phone the owner registered.
+                if db.execute("SELECT 1 FROM nodes WHERE name='agent-main' AND digest IS NOT NULL").fetchone():
+                    db.execute("INSERT OR IGNORE INTO controls VALUES('agent-main',?,'phone_alarm_at')",(node,))
                 db.execute('DELETE FROM pc_invites WHERE digest=?',(digest,))
                 return {'node':node,'token':token,'label':label,'url':BASE,'actions':PHONE_CAPABILITIES}
             if db.execute('SELECT 1 FROM pcs WHERE alias=?',(alias,)).fetchone():raise ValueError('already registered')

@@ -109,3 +109,18 @@ def test_tool_refuses_past_times_and_defaults_the_label():
     assert relay.sent == []
     tool(relay).run({'at': '2027-01-16T04:00'})
     assert relay.sent[0][1]['payload']['text'] == '대비스 알람'
+
+
+def test_registered_phone_gets_alarms_from_the_main_agent_by_the_name_phone(tmp_path):
+    from agent.pc_control import PCRegistry
+    r = PCRegistry(tmp_path / 'pc.sqlite3', clock=lambda: NOW)
+    agent_token = r.enroll('agent-main', ['voice_command'])
+    old = r.redeem(r.invite('옛 폰', kind='phone'))
+    new = r.redeem(r.invite('새 폰', kind='phone'))
+    job = r.request('agent-main', agent_token, 'phone', 'phone_alarm_at', {'at': NOW + 600, 'text': '기상'}, 'a1', 300)
+    # The newest registration receives it.
+    assert r.poll(new['node'], new['token'], actions=['phone_alarm_at'])['id'] == job['id']
+    assert r.poll(old['node'], old['token'], actions=['phone_alarm_at']) is None
+    # The grant is for alarms only.
+    with pytest.raises(PermissionError):
+        r.request('agent-main', agent_token, 'phone', 'phone_call', {'name': '엄마'}, 'c1', 30)

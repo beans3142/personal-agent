@@ -107,6 +107,7 @@ public class MainActivity extends Activity {
     /** Picks up alarms queued by Daevis now, and keeps a background check running. */
     private void syncAlarms() {
         if (relay == null) return;
+        askNotifications();  // Alarms ring through a notification.
         Alarms.channel(this);
         Alarms.schedulePolling(this);
         calls.execute(() -> Alarms.sync(this));
