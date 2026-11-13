@@ -408,6 +408,7 @@ def pc_handler(registry,public_dir):
             if self.path in ('/history','/progress','/approve'):return self.desktop_post()
             if self.path=='/pc/upload':return self.upload()
             if self.path in ('/agent/poll','/pc/poll','/pc/download','/pc/list','/pc/share') or self.path=='/request-status' and self._peek_wait():return self.remote_post()
+            if self.path.startswith('/pair/'):return self.pair_post()
             if self.path!='/enroll':return super().do_POST()
             self.connection.settimeout(10)
             try:
@@ -419,6 +420,22 @@ def pc_handler(registry,public_dir):
                 reply['sha256']=hashlib.sha256((Path(public_dir)/'device-node.py').read_bytes()).hexdigest();code=200
             except (ValueError,TypeError,KeyError):reply={'error':'invalid or expired registration'};code=400
             except Exception:reply={'error':'registration unavailable'};code=500
+            self.reply_json(code,reply)
+
+        def pair_post(self):
+            # New Daevis apps ask to connect; connected apps and the main agent answer (agent/device_pairing.py).
+            from . import device_pairing
+            self.connection.settimeout(10)
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=1024:raise ValueError('invalid length')
+                body=json.loads(self.rfile.read(length))
+                if not isinstance(body,dict):raise ValueError('invalid body')
+                auth=self.headers.get('Authorization','')
+                reply=device_pairing.handle(registry,self.path,body,auth[7:] if auth.startswith('Bearer ') else None);code=200
+            except PermissionError:reply={'error':'unauthorized'};code=401
+            except (ValueError,TypeError,KeyError) as error:reply={'error':str(error)[:120]};code=400
+            except Exception:reply={'error':'pairing unavailable'};code=500
             self.reply_json(code,reply)
 
         def _peek_wait(self):

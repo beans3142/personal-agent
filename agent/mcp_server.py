@@ -221,6 +221,9 @@ def build_runtime(data: Path, env) -> ToolBridge:
                     return send(args)
                 tool = Tool(tool.name, tool.description, tool.parameters, guarded_send, tool.needs_approval)
             tools.append(tool)
+        from .device_pairing import build_pairing_tools
+        from .voice_agent import relay_post as _relay_post
+        tools += build_pairing_tools(_relay_post(BASE, env["DAEVIS_AGENT_NODE_TOKEN"]))
         if env.get("DAEVIS_PHONE_NODE"):
             from .phone_alarm import build_phone_alarm_tools
             from .voice_agent import relay_post

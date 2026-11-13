@@ -23,6 +23,7 @@ class Bridge:
         self._on_register = None
         self._ready = threading.Event()  # Set once the page can receive events.
         self._status = ''  # Last listener status, for a page that loads after it was sent.
+        self._pair_id = None  # This PC's waiting connection request.
 
     # --- wiring (Python side only) ----------------------------------------------------
     def _connect(self, client, controller=None):
@@ -43,7 +44,7 @@ class Bridge:
         self._ready.set()
         return {'registered': self._relay is not None, 'pc': getattr(self._relay, 'label', ''),
                 'settings': dict(self._settings), 'voices': voices, 'status': self._status,
-                'features': {'wake': True, 'autostart': True, 'window': True, 'push': False}}
+                'features': {'wake': True, 'autostart': True, 'window': True, 'push': False, 'pair': True}}
 
     def register(self, pasted):
         try:
@@ -56,13 +57,59 @@ class Bridge:
             self._on_register(path)
         return {'ok': True}
 
+    # --- connecting new devices without codes (agent/device_pairing.py) -----------------------
+    def pair_start(self):
+        import platform
+        try:
+            reply = relay.anonymous_post('/pair/start', {'kind': 'pc', 'name': platform.node()})
+        except Exception:
+            return {'ok': False, 'error': '연결 요청을 보내지 못했어요. 인터넷 연결을 확인해 주세요.'}
+        self._pair_id = reply['id']
+        return {'ok': True, 'code': reply['code'], 'expires_in': reply.get('expires_in', 600)}
+
+    def pair_poll(self):
+        if not self._pair_id:
+            return {'status': 'unknown'}
+        try:
+            reply = relay.anonymous_post('/pair/poll', {'id': self._pair_id})
+        except Exception:
+            return {'status': 'pending'}  # A dropped request is retried by the page.
+        if reply.get('status') != 'approved':
+            return {'status': reply.get('status', 'unknown')}
+        self._pair_id = None
+        path = relay.store_registration(reply)
+        if self._on_register:
+            self._on_register(path)
+        return {'status': 'approved'}
+
+    def pair_pending(self):
+        if self._relay is None:
+            return {'requests': []}
+        try:
+            return {'requests': self._relay.pair('/pair/pending').get('requests', [])}
+        except Exception:
+            return {'requests': []}
+
+    def pair_accept(self, code):
+        return self._pair_answer('/pair/accept', code)
+
+    def pair_deny(self, code):
+        return self._pair_answer('/pair/deny', code)
+
+    def _pair_answer(self, path, code):
+        try:
+            self._relay.pair(path, str(code))
+            return {'ok': True}
+        except Exception:
+            return {'ok': False, 'error': '요청이 이미 끝났거나 처리하지 못했어요.'}
+
     def send(self, text, thread=None, wait=False):
         text = (text or '').strip()
         if not text or self._controller is None:
             return {'ok': False, 'error': '보낼 내용을 적어 주세요.'}
         if thread is not None and not (isinstance(thread, str) and len(thread) == 32):
             thread = None
-        queued = self._controller.busy.locked()
+        queued = self._controller.busy.locked() and not relay.is_request_control(text)
         worker = threading.Thread(target=self._controller.request, args=(text, 'typed', thread), daemon=True)
         worker.start()
         if wait:

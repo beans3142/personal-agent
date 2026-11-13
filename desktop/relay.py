@@ -17,6 +17,17 @@ NODE = re.compile(r'pc-[a-f0-9]{16}')
 CODE = re.compile(r'(?<![A-Za-z0-9_-])([A-Za-z0-9_-]{40,64})(?![A-Za-z0-9_-])')
 
 
+def is_request_control(text):
+    """Only these exact phrases may bypass the local request queue.
+
+    The authenticated server still resolves the target and authorizes control.
+    Keep aligned with agent.request_tasks.control_kind without bundling servers.
+    """
+    return re.sub(r'[\s?.!]', '', text) in {
+        '작업취소', '요청취소', '아까요청취소해', '지금작업취소해', '지금요청취소해', '아까작업취소해',
+        '작업상태', '요청상태', '지금뭐하고있어', '지금뭐하는중이야', '진행상황'}
+
+
 class RelayError(Exception):
     def __init__(self, code):
         super().__init__(f'relay answered HTTP {code}')
@@ -103,6 +114,10 @@ class Relay:
     def approve(self, job_id, approval, value):
         return self.post('/approve', {'node': self.node, 'id': job_id, 'approval': approval, 'value': value})
 
+    def pair(self, path, code=None):
+        """Answer new-device requests (/pair/pending, /pair/accept, /pair/deny) as this connected PC."""
+        return self.post(path, {'node': self.node, **({'code': code} if code else {})})
+
 
 def registration_code(pasted):
     """The one-use code from Discord's "PC 등록" message, alone or inside the PowerShell command."""
@@ -120,13 +135,22 @@ def find_config(home=None):
     return found[0] if found else None
 
 
+def anonymous_post(path, body):
+    """Unauthenticated relay call (new-device requests)."""
+    return _send(no_redirect_opener(), BASE + path, body, {})
+
+
 def enroll(pasted, home=None, post=None):
     """Redeem a registration code and store credentials like install-pc.ps1 does."""
     code = registration_code(pasted)
     if post is None:
         opener = no_redirect_opener()
         post = lambda url, body: _send(opener, url, body, {})
-    reply = post(BASE + '/enroll', {'code': code})
+    return store_registration(post(BASE + '/enroll', {'code': code}), home)
+
+
+def store_registration(reply, home=None):
+    """Save a registration the relay handed out (code enrollment or an accepted request)."""
     if not isinstance(reply, dict) or not NODE.fullmatch(str(reply.get('node'))) or reply.get('url') != BASE or not reply.get('token'):
         raise ValueError('등록 서버 응답이 예상과 달라요. 다시 등록해 주세요.')
     folder = Path(home or Path.home()) / '.daevis' / 'pcs' / reply['node']

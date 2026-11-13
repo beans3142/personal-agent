@@ -366,7 +366,36 @@ public class MainActivity extends Activity {
             case "boot":
                 return new JSONObject().put("registered", relay != null).put("pc", relay != null ? relay.label : "")
                     .put("settings", settings()).put("voices", voices()).put("status", "")
-                    .put("features", new JSONObject().put("wake", false).put("autostart", false).put("window", false).put("push", true));
+                    .put("features", new JSONObject().put("wake", false).put("autostart", false).put("window", false).put("push", true).put("pair", true));
+            case "pair_start": {
+                JSONObject r = Relay.pairStart(Build.MODEL);
+                prefs.edit().putString("pair_id", r.getString("id")).apply();
+                return new JSONObject().put("ok", true).put("code", r.getString("code")).put("expires_in", r.optInt("expires_in", 600));
+            }
+            case "pair_poll": {
+                String id = prefs.getString("pair_id", "");
+                if (id.isEmpty()) return new JSONObject().put("status", "unknown");
+                JSONObject r;
+                try { r = Relay.pairPoll(id); } catch (java.io.IOException e) { return new JSONObject().put("status", "pending"); }
+                if (!"approved".equals(r.optString("status"))) return new JSONObject().put("status", r.optString("status", "unknown"));
+                if (!Logic.validPhone(r.optString("node")) || !Logic.BASE.equals(r.optString("url")) || r.optString("token").isEmpty())
+                    return new JSONObject().put("status", "error").put("error", "연결 응답이 예상과 달라요. 다시 눌러 주세요.");
+                prefs.edit().putString("node", r.getString("node")).putString("token", r.getString("token"))
+                    .putString("label", r.optString("label")).remove("pair_id").apply();
+                relay = new Relay(r.getString("node"), r.getString("token"), r.optString("label"));
+                syncAlarms();
+                return new JSONObject().put("status", "approved");
+            }
+            case "pair_pending": {
+                if (relay == null) return new JSONObject().put("requests", new JSONArray());
+                try { return new JSONObject().put("requests", relay.pair("/pair/pending", null).optJSONArray("requests")); }
+                catch (java.io.IOException e) { return new JSONObject().put("requests", new JSONArray()); }
+            }
+            case "pair_accept": case "pair_deny": {
+                if (relay == null) return new JSONObject().put("ok", false);
+                try { relay.pair("pair_accept".equals(name) ? "/pair/accept" : "/pair/deny", a.optString(0)); return new JSONObject().put("ok", true); }
+                catch (java.io.IOException e) { return new JSONObject().put("ok", false).put("error", "요청이 이미 끝났거나 처리하지 못했어요."); }
+            }
             case "register": {
                 JSONObject reply = Relay.enroll(a.optString(0));
                 prefs.edit().putString("node", reply.getString("node")).putString("token", reply.getString("token"))

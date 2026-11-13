@@ -145,6 +145,15 @@ details.trace[open] summary::before { transform: rotate(90deg); }
 .alert .go { padding: 9px 18px; background: var(--amber); color: #1a1000; font-weight: 600; border-radius: 9px; }
 .alert .no { padding: 9px 16px; border: 1px solid rgba(255, 181, 71, .5); color: var(--amber); border-radius: 9px; }
 
+/* new device request (shown on already connected apps) */
+.pair { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); width: min(480px, 92%); padding: 18px 20px; z-index: 6; border-radius: 14px;
+  border: 1px solid var(--line-strong); background: rgba(6, 20, 34, .97); box-shadow: 0 0 40px rgba(79, 216, 255, .18); animation: rise .25s; }
+.pair .label { color: var(--cyan); }
+.pair .body { margin: 8px 0 12px; }
+.pair .row { display: flex; gap: 10px; justify-content: flex-end; }
+.pair .go { padding: 8px 18px; background: var(--cyan); color: var(--bg); font-weight: 600; border-radius: 9px; }
+.pair .no { padding: 8px 16px; border: 1px solid var(--line-strong); color: var(--cyan-soft); border-radius: 9px; }
+
 /* palette */
 .overlay { position: absolute; inset: 0; z-index: 8; background: rgba(1, 4, 8, .6); backdrop-filter: blur(3px); display: flex; justify-content: center; padding-top: 12vh; }
 .palette { width: min(620px, 92%); max-height: 64vh; display: flex; flex-direction: column; border-radius: 14px; border: 1px solid var(--line-strong); background: rgba(6, 16, 28, .98); box-shadow: 0 30px 80px rgba(0, 0, 0, .6), 0 0 30px rgba(79, 216, 255, .12); overflow: hidden; }
@@ -182,6 +191,10 @@ input[type=range] { flex: 1; accent-color: var(--cyan); }
 .link-box .row { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
 .link-box .go { padding: 9px 22px; background: var(--cyan); color: var(--bg); border-radius: 9px; font-weight: 600; }
 .link-box .err { color: var(--red); font-size: 13px; }
+.link-box .wait { color: var(--cyan-soft); font-size: 13px; }
+.pair-code { font: 34px var(--mono); letter-spacing: .4em; color: var(--cyan); margin: 14px 0 4px; }
+.link-box details { margin-top: 20px; }
+.link-box summary { color: var(--muted); cursor: pointer; font-size: 13px; }
 .toast { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); padding: 8px 16px; border-radius: 10px; background: rgba(5, 20, 32, .96); border: 1px solid var(--line-strong); font-size: 13px; z-index: 10; animation: rise .25s; }
 
 /* phones */
@@ -246,6 +259,11 @@ input[type=range] { flex: 1; accent-color: var(--cyan); }
       <div class="body" id="alertBody"></div>
       <div class="row"><span class="count" id="alertCount"></span><button class="no" id="deny">취소</button><button class="go" id="allow">결제 진행</button></div>
     </div>
+    <div class="pair hidden" id="pairCard">
+      <div class="label">새 기기 연결 요청</div>
+      <div class="body" id="pairBody"></div>
+      <div class="row"><button class="no" id="pairDeny">거절</button><button class="go" id="pairAllow">승인</button></div>
+    </div>
   </main>
 
   <div class="overlay hidden" id="palette">
@@ -275,8 +293,13 @@ input[type=range] { flex: 1; accent-color: var(--cyan); }
       <span class="label">기기 연결</span>
       <h2>이 기기를 대비스에 연결해 주세요</h2>
       <p id="linkHelp"></p>
-      <textarea id="code" placeholder="Discord에서 받은 등록 명령이나 코드를 붙여 넣기"></textarea>
-      <div class="row"><button class="go" id="linkBtn">연결</button><span class="err" id="linkErr"></span></div>
+      <div class="row hidden" id="pairRow"><button class="go" id="pairBtn">기기 등록</button><span class="wait" id="pairMsg"></span></div>
+      <div class="pair-code hidden" id="pairCode"></div>
+      <details id="codeWay">
+        <summary>등록 코드로 연결</summary>
+        <textarea id="code" placeholder="Discord에서 받은 등록 명령이나 코드를 붙여 넣기"></textarea>
+        <div class="row"><button class="go" id="linkBtn">연결</button><span class="err" id="linkErr"></span></div>
+      </details>
     </div>
   </section>
 </div>
@@ -624,9 +647,15 @@ async function boot() {
   renderSettings();
   if (!b.registered) {
     $('linkScreen').classList.remove('hidden'); setLink('warn', 'NOT LINKED');
+    if (state.features.pair) {
+      $('pairRow').classList.remove('hidden'); $('pairBtn').onclick = startPair;
+      $('linkHelp').innerHTML = '<b>기기 등록</b>을 누르면 연결 요청이 가요. 이미 연결된 대비스 화면(PC 프로그램이나 폰 앱)에서 승인하거나, 대비스에게 <b>"연결 수락해"</b>라고 하면 바로 연결돼요.';
+    } else {
+      $('codeWay').open = true;
     $('linkHelp').innerHTML = state.features.window
       ? 'Discord에서 대비스에게 <b>PC 등록 노트북</b>처럼 보내면 등록 명령을 받아요. 그 명령을 통째로 붙여 넣으세요. 코드는 15분 동안 한 번만 쓸 수 있어요.'
       : 'Discord에서 대비스에게 <b>폰 등록 갤럭시</b>처럼 보내면 등록 명령을 받아요. 그 명령을 통째로 붙여 넣으세요. 코드는 15분 동안 한 번만 쓸 수 있어요.';
+    }
     $('linkBtn').onclick = async () => {
       $('linkErr').textContent = '연결하는 중…';
       const r = await api().register($('code').value);
@@ -635,7 +664,45 @@ async function boot() {
     return;
   }
   setLink('ok', 'LINK ONLINE'); if (b.pc) { state.me = b.pc; $('pcLabel').textContent = b.pc; }
+  if (state.features.pair) watchPairs();
   loadCache(); renderWelcome(); loadHistory(); $('input').focus(); autosize();
+}
+// A new app asks to connect and waits; an already connected app (or the agent) approves.
+async function startPair() {
+  $('pairMsg').textContent = '요청 보내는 중…'; $('pairBtn').disabled = true;
+  const r = await api().pair_start();
+  if (!r.ok) { $('pairMsg').textContent = r.error; $('pairBtn').disabled = false; return; }
+  $('pairCode').textContent = r.code; $('pairCode').classList.remove('hidden');
+  $('pairMsg').textContent = '승인 대기 중 · 다른 대비스 화면에서 이 번호를 확인하고 승인해 주세요';
+  const until = Date.now() + r.expires_in * 1000;
+  const tick = async () => {
+    const s = await api().pair_poll();
+    if (s.status === 'approved') { $('linkScreen').classList.add('hidden'); boot(); return; }
+    if (s.status === 'pending' && Date.now() < until) { setTimeout(tick, 2000); return; }
+    $('pairBtn').disabled = false; $('pairCode').classList.add('hidden');
+    $('pairMsg').textContent = s.status === 'error' ? s.error : '승인되지 않았어요. 다시 눌러 주세요.';
+  };
+  setTimeout(tick, 2000);
+}
+let pairTimer = null, pairShown = null;
+function watchPairs() {
+  if (pairTimer) return;
+  const check = async () => {
+    const r = await api().pair_pending();
+    const next = (r.requests || [])[0];
+    if (!next) { $('pairCard').classList.add('hidden'); pairShown = null; return; }
+    if (pairShown === next.code) return;
+    pairShown = next.code;
+    $('pairBody').textContent = (next.kind === 'phone' ? '폰' : 'PC') + ' · ' + next.name + ' · 번호 ' + next.code;
+    $('pairCard').classList.remove('hidden');
+    const answer = async ok => {
+      $('pairCard').classList.add('hidden'); pairShown = null;
+      const a = await (ok ? api().pair_accept(next.code) : api().pair_deny(next.code));
+      toast(a.ok ? (ok ? next.name + ' 연결을 승인했어요.' : '연결 요청을 거절했어요.') : (a.error || '처리하지 못했어요.'));
+    };
+    $('pairAllow').onclick = () => answer(true); $('pairDeny').onclick = () => answer(false);
+  };
+  check(); pairTimer = setInterval(check, 8000);
 }
 window.addEventListener('pywebviewready', boot);
 </script>

@@ -88,6 +88,22 @@ final class Relay {
         post("/approve", new JSONObject().put("id", job).put("approval", approval).put("value", value));
     }
 
+    /** New-device request: this phone asks to connect and waits for the owner to accept. */
+    static JSONObject pairStart(String name) throws IOException, JSONException {
+        return send("/pair/start", new JSONObject().put("kind", "phone").put("name", name == null ? "" : name), null);
+    }
+
+    static JSONObject pairPoll(String id) throws IOException, JSONException {
+        return send("/pair/poll", new JSONObject().put("id", id), null);
+    }
+
+    /** As a connected phone: list or answer other devices' requests. */
+    JSONObject pair(String path, String code) throws IOException, JSONException {
+        JSONObject body = new JSONObject();
+        if (code != null) body.put("code", code);
+        return post(path, body);
+    }
+
     /** Redeem a "폰 등록" code. Returns node, token and label. */
     static JSONObject enroll(String pasted) throws IOException, JSONException {
         JSONObject reply = send("/enroll", new JSONObject().put("code", Logic.registrationCode(pasted)), null);
