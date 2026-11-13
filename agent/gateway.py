@@ -49,12 +49,16 @@ def wants_screen(text: str) -> bool:
     """Attach the phone screenshot only when the owner asked to see it."""
     return bool(re.search(r"화면|스크린샷|캡처|캡쳐|사진|보여\s*줘", text or ""))
 
+KAKAO_STATUS['KAKAO_UNCERTAIN'] = '전송 결과를 확인하지 못했습니다. 자동으로 다시 보내지 않아요.'
 
 def kakao_status_reply(reply: str) -> str:
     return KAKAO_STATUS.get(reply.strip().splitlines()[0] if reply.strip() else "", "전송 결과를 확인하지 못했습니다.")
 
 
 def quoted_kakao_message(text: str):
+    # "내 폰으로 ..." goes through the owner's phone (phone_kakao_send), not the server's KakaoTalk.
+    if re.search(r'폰\s*(?:으로|카톡|에서)|휴대폰|핸드폰', text):
+        return None
     match = re.fullmatch(r'\s*(.+?)\s*(?:카톡|카카오톡)(?:으로)?\s*["“](.+?)["”]\s*(?:보내줘|보내|전송해줘|전송해)\s*[.!]?\s*', text, re.S)
     if match:
         recipient, body = match[1], match[2]
@@ -95,7 +99,7 @@ INSTRUCTIONS = """너는 사용자의 개인 Agent daevis(대비스)다. 요청�
 - 카톡 전송은 kakao_send로 검색·수신자 확인·전송 검증을 묶어 실행한다. 단체방은 room_type=group으로 방 이름을 recipient에 지정한다. 실제 @멘션은 mention에 참여자 이름을 지정한다. 나와의 채팅은 kakao_self_send를 쓴다. kakao_find_recipient는 서버에 저장된 확인 이력도 조회한다. 캐시는 찾는 힌트일 뿐이며 전송 도구가 실제 방을 다시 검증한다. 추정 후보에 바로 보내지 않는다. 다만 kakao_find_recipient 결과에서 exact=true인 후보(띄어쓰기만 다른 같은 이름)는 그 후보 이름 그대로 kakao_send에 넣어 보낸다. 후보 확인이 필요하면 KAKAO_RECIPIENT_REQUIRED로 끝낸다. 참여자가 있는 최신 방이라는 조건은 방 제목만으로 판단하지 않고 실제 참여자와 활동 시각을 확인해야 하며, 근거를 얻지 못하면 선택하지 않는다. 원시 화면 조작으로 수신자 검증을 우회하지 않는다.
 - 카톡에 보내는 메시지에는 본문만 쓴다. 처리 시간·토큰·모델·호출 횟수 등 사용량 표시는 붙이지 않는다. 사용량 표시는 Discord 응답에만 남긴다.
 - 카톡 전송 결과를 Discord에 알릴 때는 완료 여부만 답하고 보낸 문구·받은 대화·스크린샷을 공개하지 않는다.
-- 카톡 작업의 최종 응답은 결과 코드 한 줄만 쓴다. 실제 전송한 말풍선까지 확인하면 KAKAO_SENT(사진은 kakao_send_image 결과 그대로 KAKAO_IMAGE_SENT), 미전송이면 KAKAO_NOT_SENT, 수신자가 모호하면 KAKAO_RECIPIENT_REQUIRED, 조회만 완료했으면 KAKAO_CHECKED, 이전 전송 미확인으로 막혔으면 KAKAO_BLOCKED. 대화 내용을 덧붙이지 않는다.
+- 카톡 작업의 최종 응답은 결과 코드 한 줄만 쓴다. 실제 전송한 말풍선까지 확인하면 KAKAO_SENT(사진은 kakao_send_image 결과 그대로 KAKAO_IMAGE_SENT), 미전송이면 KAKAO_NOT_SENT, 수신자가 모호하면 KAKAO_RECIPIENT_REQUIRED, 조회만 완료했으면 KAKAO_CHECKED, 이전 전송 미확인으로 막혔으면 KAKAO_BLOCKED. "내 폰으로/폰 카톡으로" 보내 달라는 1:1 메시지는 phone_kakao_send를 쓰고, 그 결과 code(KAKAO_SENT, KAKAO_NOT_SENT, KAKAO_RECIPIENT_REQUIRED, KAKAO_UNCERTAIN)를 그대로 쓴다. 대화 내용을 덧붙이지 않는다.
 - Android 조작 도구의 결과에는 바뀐 화면(screen)이 함께 온다. 다음 조작은 그 screen의 snapshot과 요소 id를 쓰고, android_screen은 screen이 없을 때만 부른다.
 - 계정 아이디·비밀번호는 android_credential의 credential로 환경변수 이름만 지정한다. 주소·검색어는 android_input의 text로 입력한다. 한글도 입력할 수 있다.
 - 주문 기본값: 일회용 수저·포크 받기를 선택하고, 가게에 리뷰 이벤트가 있으면 요청사항에 그 가게가 안내한 문구(예: 리뷰 이벤트 참여)를 적는다. 주문은 사용자에게 매장·상품·총액·배달지를 확인한 뒤 최종 결제를 실행한다. 기기 이전이나 기존 휴대폰 로그아웃은 먼저 알린다.
