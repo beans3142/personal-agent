@@ -20,7 +20,7 @@ LABELS = {
     "mail_list": "메일 확인하는 중", "mail_read": "메일 읽는 중", "mail_send": "메일 보내는 중",
     "memory_search": "기억 찾는 중", "memory_save": "기억 저장하는 중", "memory_forget": "기억 지우는 중",
     "schedule_list": "일정 확인하는 중", "schedule_add": "일정 추가하는 중", "schedule_remove": "일정 지우는 중", "schedule_repeat": "반복 일정 설정하는 중",
-    "kakao_find_recipient": "카톡 받는 사람 찾는 중", "kakao_send": "카톡 보내는 중", "kakao_self_send": "나에게 카톡 보내는 중",
+    "kakao_find_recipient": "카톡 받는 사람 찾는 중", "kakao_send": "카톡 보내는 중", "kakao_send_image": "카톡으로 사진 보내는 중", "image_generate": "이미지 만드는 중", "kakao_self_send": "나에게 카톡 보내는 중",
     "n8n_list": "자동화 목록 보는 중", "n8n_run": "자동화 실행하는 중", "device_nodes": "기기 확인하는 중", "device_jobs": "기기 작업 확인하는 중",
     "device_enqueue": "기기에 작업 보내는 중", "auth_ensure": "로그인 확인하는 중", "owner_control": "기기 제어하는 중",
     "kb_search": "자료 찾는 중", "conversation_search": "이전 대화 찾는 중", "conversation_history": "이전 대화 읽는 중",

@@ -174,6 +174,8 @@ def build_runtime(data: Path, env) -> ToolBridge:
     tools += build_n8n_tools(data / "n8n-workflows.json") + build_device_tools(data, env)
     from .baemin import build_baemin_tools
     tools += build_baemin_tools(android.device)
+    from .chat_image import build_image_tools
+    tools += build_image_tools()
     tools += build_kakao_self_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'))
     tools += build_kakao_send_tools(android.device, data, request_id=env.get('DAEVIS_MCP_REQUEST_ID'), notify_candidates=notify if mode == 'discord' else None)
     tools += [build_auth_tool(gate), build_mail_tool(gate, browser, env)]

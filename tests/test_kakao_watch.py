@@ -139,7 +139,7 @@ def test_send_tool_has_stable_request_id_and_approval_gate(tmp_path, monkeypatch
     from agent.kakao_watch import build_kakao_send_tools
     ids = []
     monkeypatch.setattr(KakaoWatcher, 'send_once', lambda self, recipient, text, **kw: ids.append(kw['request_id']))
-    send, lookup = build_kakao_send_tools(None, tmp_path, request_id='trusted-id')
+    send, lookup, _ = build_kakao_send_tools(None, tmp_path, request_id='trusted-id')
     assert send.needs_approval and not lookup.needs_approval
     assert send.run({'recipient': 'person', 'text': 'hello'}) == 'KAKAO_SENT'
     assert ids == ['trusted-id']

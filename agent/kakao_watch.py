@@ -370,6 +370,22 @@ class KakaoWatcher:
             raise ValueError('invalid direct message')
         if room_type not in {'individual', 'group'} or (mention and room_type != 'group'):
             raise ValueError('mentions require a group target')
+        if mention:
+            deliver = lambda state: self.send_text(state, text, check_enabled=False, mention=mention)
+        else:
+            deliver = lambda state: self.send_text(state, text, check_enabled=False)
+        self._deliver_once(recipient, room_type, request_id, [text, room_type, mention], deliver)
+
+    def send_image_once(self, recipient: str, path, *, request_id=None, room_type='individual'):
+        """Same room proof, lock and journal as text; the picture is identified by its hash."""
+        path = Path(path)
+        if not recipient.strip() or room_type not in {'individual', 'group'} or not path.is_file():
+            raise ValueError('invalid direct picture')
+        from .kakao_image import send_image
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        self._deliver_once(recipient, room_type, request_id, ['image', digest, room_type], lambda state: send_image(self, state, path))
+
+    def _deliver_once(self, recipient, room_type, request_id, payload, deliver):
         state = {"room": recipient, "members": None, 'kind': room_type, "until": (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()}
         journal = self.path.with_name('kakao-direct-send.json')
         journal.parent.mkdir(parents=True, exist_ok=True)
@@ -383,7 +399,7 @@ class KakaoWatcher:
             previous = expire_direct_pending(journal)
             if previous.get('status') == 'pending':
                 raise KakaoSendBlocked('previous direct send uncertain; owner review required')
-            digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, text, room_type, mention], ensure_ascii=False).encode()).hexdigest()
+            digest = hashlib.sha256(json.dumps([request_id or uuid.uuid4().hex, recipient, *payload], ensure_ascii=False).encode()).hexdigest()
             completed = previous.get('completed', [])[-255:]
             if digest in completed:
                 raise ValueError('already sent in this owner request; no automatic repeat')
@@ -412,10 +428,7 @@ class KakaoWatcher:
                     stream.flush(); os.fsync(stream.fileno())
                 temp.replace(journal)
             record('pending')
-            if mention:
-                self.send_text(state, text, check_enabled=False, mention=mention)
-            else:
-                self.send_text(state, text, check_enabled=False)
+            deliver(state)
             record('succeeded')
         finally:
             lock_path.unlink(missing_ok=True)
@@ -506,6 +519,21 @@ def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candida
         except KakaoSendBlocked:
             return 'KAKAO_BLOCKED'
         return 'KAKAO_SENT'
+    def send_image(args):
+        from .artifacts import current_outbox
+        name = args['file']
+        if not re.fullmatch(r'image-[0-9a-f]{10}\.png', name):
+            return 'KAKAO_IMAGE_NOT_FOUND'
+        path = current_outbox(Path(os.environ.get('AGENT_OUTBOX', 'data/outbox'))) / name
+        if not path.is_file():
+            return 'KAKAO_IMAGE_NOT_FOUND'
+        try:
+            watcher.send_image_once(args['recipient'], path, request_id=trusted_id, room_type=args.get('room_type', 'individual'))
+        except KakaoRecipientUnavailable:
+            return 'KAKAO_RECIPIENT_REQUIRED'
+        except KakaoSendBlocked:
+            return 'KAKAO_BLOCKED'
+        return 'KAKAO_IMAGE_SENT'
     def find(args):
         result = watcher.find_candidates(args['query'])
         if notify_candidates and result['candidates'] and not any(c['exact'] for c in result['candidates']):
@@ -514,4 +542,6 @@ def build_kakao_send_tools(device, data_path, *, request_id=None, notify_candida
     return [Tool('kakao_send', 'Search exact individual/group room, verify native title/count, send once and verify outgoing bubble. For group use room_type=group; optional mention selects the actual Kakao member picker and preserves native mention. Never substitute literal @text. Status only.',
         {'type': 'object', 'properties': {'recipient': {'type': 'string', 'minLength': 1, 'maxLength': 30}, 'text': {'type': 'string', 'minLength': 1, 'maxLength': 2000}, 'room_type': {'type': 'string', 'enum': ['individual', 'group']}, 'mention': {'type': 'string', 'minLength': 1, 'maxLength': 40}}, 'required': ['recipient', 'text'], 'additionalProperties': False}, send, needs_approval=True),
         Tool('kakao_find_recipient', 'Read-only native search for exact names or typo candidates. Returns at most 3 names, never sends. Does NOT prove membership or most-recent-room selection. Approximate matches require owner confirmation; a candidate with exact=true (same name ignoring spaces) may be sent to under that exact name.',
-        {'type': 'object', 'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 30}}, 'required': ['query'], 'additionalProperties': False}, find)]
+        {'type': 'object', 'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 30}}, 'required': ['query'], 'additionalProperties': False}, find),
+        Tool('kakao_send_image', 'Send one picture made in this request (image_generate result file) to an exact individual/group room, same room proof as kakao_send. Verifies a new outgoing photo bubble. Status only.',
+        {'type': 'object', 'properties': {'recipient': {'type': 'string', 'minLength': 1, 'maxLength': 30}, 'file': {'type': 'string', 'minLength': 1, 'maxLength': 40}, 'room_type': {'type': 'string', 'enum': ['individual', 'group']}}, 'required': ['recipient', 'file'], 'additionalProperties': False}, send_image, needs_approval=True)]

@@ -19,6 +19,7 @@ Discord로 말을 걸면 서버에서 내 계정으로 일을 끝내는 개인 A
 | | 기능 | 이렇게 말한다 | 처리 방식 | 쓰는 도구 |
 | :-: | --- | --- | --- | --- |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 카톡 보내기 | `엄마 카톡 "곧 도착" 보내줘` | 코드가 바로 전송 (모델 0회) | `kakao_send` |
+| 🎨 | 그림 만들어 보내기 | `펭귄 그림 만들어서 나한테 카톡으로 보내줘` | ChatGPT 앱으로 그린 그림을 Discord 답에 붙이고, 요청하면 카톡 사진으로 전송 | `image_generate` `kakao_send_image` |
 | <img src="https://cdn.simpleicons.org/kakaotalk" width="20"> | 나와의 채팅에 보내기 | `내 톡방에 이 링크 남겨줘` | 모델 | `kakao_self_send` |
 | 🗺️ | 길찾기 | `경로 "강남역" → "판교역"` | 코드가 바로 조회 (모델 0회) | `route_search` |
 | 📍 | 장소 검색 | `판교 근처 24시 카페 찾아줘` | 모델 | `map_search` |
@@ -98,7 +99,7 @@ flowchart TD
 flowchart TD
     hermes["🧩 Hermes worker"] -- "MCP stdio" --> mcp["🔌 daevis MCP 서버<br/>허용 목록 · 공개 채널 · 승인 판단"]
     mcp --> r["📖 <b>읽기</b><br/>memory_search<br/>route_search · map_search<br/>web_search · web_fetch<br/>mail_list · mail_read<br/>schedule_list<br/>android_screen<br/>kakao_find_recipient<br/>n8n_list · device_nodes · device_jobs"]
-    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_send_file · pc_save_file<br/>pc_system · pc_shell · run_code"]
+    mcp --> w["✍️ <b>소유자 요청에서 실행</b><br/>memory_save · memory_forget<br/>schedule_add · schedule_repeat · schedule_remove<br/>kakao_send · kakao_self_send · kakao_send_image<br/>image_generate<br/>android_open · click · input · swipe · key<br/>android_submit · android_credential<br/>n8n_run · device_enqueue<br/>auth_ensure · discord_post_as_me<br/>pc_screenshot · pc_windows · pc_ui · pc_act<br/>pc_open · pc_find_files · pc_send_file · pc_save_file<br/>pc_system · pc_shell · run_code"]
     mcp --> c["🧭 <b>조합</b><br/>recipe_list · recipe_run<br/>plan_execute<br/><i>허용된 도구만 묶어서 실행</i>"]
 ```
 
