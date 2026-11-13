@@ -47,3 +47,10 @@
 
 - [Android 자기 업데이트와 사용자 확인 조건](https://developer.android.com/reference/android/content/pm/PackageInstaller.SessionParams#setRequireUserAction(int))
 - `agent/phone_updates.py`, `tests/test_phone_updates.py`, `android/src/io/daevis/app/AppUpdates.java`
+
+## 버전 25 배포 확인
+
+버전 표시·직접 확인 버튼의 커밋은 806c74f다. CI 빌드·AOSP 기동 검사·자동 게시가 모두 통과했다. 에뮬레이터의 실제 실행 화면에서 상단 v0.1.25 · 25 표시를 확인했다. 관련 Python 119개와 Java 규칙 테스트가 통과했다.
+
+소유자는 자동 설치 허용을 켰다고 알렸다. 이후 서버의 실행 버전 보고는 비어 있었고, 폰 화면 요청도 이전 실행기의 잠금 실패 형태로 돌아왔다. 실기기 적용을 주장하지 않았다. 버전 25 APK를 소유자 DM에 대체 설치 파일로 전달했다. 실기기 자기 업데이트 완료와 잠금 해제, 카톡 전송은 아직 확인하지 못했다.
+
