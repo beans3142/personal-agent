@@ -24,8 +24,12 @@ def test_public_context_cannot_read_private_dm_and_dm_forks_public(tmp_path):
 def test_expiry_purges_messages_and_ambiguity_does_not_execute(tmp_path):
     now=[1000.0];store=Conversations(tmp_path/'topics.sqlite3',clock=lambda:now[0])
     first=store.resolve('dm','첫 작업');store.append(first,'user','기록')
+    # Ambiguity or a failed classifier starts a new topic instead of stopping to ask.
     choice=store.resolve('dm','그 작업은?',decide=lambda *_:{'decision':'choose'})
-    assert choice['needs_choice'] and choice['choices']
+    assert not choice.get('needs_choice') and choice['id']!=first['id']
+    def broken(*_):raise RuntimeError('classifier down')
+    other=store.resolve('dm','반수의신한테 카톡 보내줘',decide=broken)
+    assert not other.get('needs_choice') and other['id'] not in (first['id'],choice['id'])
     now[0]+=31*86400
     assert not store.candidates('dm') and not store.history(first)
 
