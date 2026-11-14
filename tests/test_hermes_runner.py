@@ -169,10 +169,11 @@ def test_claude_fallback_failure_reports_both(tmp_path):
 
 def test_expired_chatgpt_login_also_falls_back_to_claude(tmp_path):
     expired = json.dumps({"type":"result","completed":False,"stop_reason":"model_auth_failed","tool_calls":0,"model":"gpt (설정)"})
-    run, calls = _scripted(expired, _ok())
+    # First a same-provider retry (Hermes refreshes the login), then Claude if ChatGPT still fails.
+    run, calls = _scripted(expired, expired, _ok())
     out = HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
-    assert out.text == "claude answer" and len(calls) == 2
-    assert calls[1]["DAEVIS_HERMES_PROVIDER"] == "anthropic"
+    assert out.text == "claude answer" and len(calls) == 3
+    assert "DAEVIS_HERMES_PROVIDER" not in calls[1] and calls[2]["DAEVIS_HERMES_PROVIDER"] == "anthropic"
     assert "로그인" in out.fallback
 
 
@@ -183,3 +184,14 @@ def test_expired_login_after_a_tool_ran_is_not_retried(tmp_path):
     with pytest.raises(HermesError):
         HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
     assert len(calls) == 1
+
+
+
+def test_expired_chatgpt_login_retries_once_on_chatgpt_before_any_tool(tmp_path):
+    # Hermes refreshes the ChatGPT login after the failed call, so the same provider works on retry.
+    auth = json.dumps({"type":"result","completed":False,"stop_reason":"model_auth_failed","tool_calls":0})
+    run, calls = _scripted(auth, _ok("chatgpt answer"))
+    out = HermesRunner("p", "w", data=tmp_path, env={}, run=run, claude_token=lambda: "tok").run("hi", "system", [])
+    assert out.text == "chatgpt answer" and len(calls) == 2
+    assert "DAEVIS_HERMES_PROVIDER" not in calls[1]
+

@@ -178,16 +178,24 @@ class HermesRunner:
             return self._attempt(text, instructions, history, public, owner_request, chat_scope)
         except HermesError as error:
             first=error.outcome
+            if (first is not None and first.stop_reason=='model_auth_failed'
+                    and not first.tool_calls and not first.kakao_used):
+                # Hermes refreshes an expired ChatGPT login after the failed call, so one retry
+                # on the same provider usually succeeds. Nothing ran yet, so nothing can repeat.
+                try:
+                    return self._attempt(text, instructions, history, public, owner_request, chat_scope)
+                except HermesError as again:
+                    error,first=again,again.outcome
             # Retry with Claude (ChatGPT limit or expired login) only when the model never acted: no tool ran and
             # no Kakao screen was touched, so a second run cannot duplicate a send.
             if (first is None or first.stop_reason not in ('usage_limit_reached','model_rate_limited','model_auth_failed')
                     or first.tool_calls or first.kakao_used or self.claude_token is None):
-                raise
+                raise error
             try:
                 token=self.claude_token()
             except Exception:
                 raise error from None
-            if not token:raise
+            if not token:raise error
             try:
                 result=self._attempt(text, instructions, history, public, owner_request, chat_scope,
                                      {"DAEVIS_HERMES_PROVIDER":"anthropic","DAEVIS_CLAUDE_TOKEN":token})
